@@ -6,8 +6,10 @@ Handles sync between the PWA and Google Sheets.
 Usage:
     uvicorn main:app --reload --port 8000
 """
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from contextlib import asynccontextmanager
 import os
 import logging
@@ -22,6 +24,50 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+# --- Custom CORS middleware (replaces Starlette CORSMiddleware) ---
+
+ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "*")
+ALLOWED_ORIGINS = [
+    o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()
+] or ["*"]
+
+logger.info("CORS allow_origins = %s", ALLOWED_ORIGINS)
+
+
+class CORSMiddleware(BaseHTTPMiddleware):
+    """Manual CORS handler to guarantee headers on every response."""
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin", "*")
+
+        # Determine allowed origin header value
+        if "*" in ALLOWED_ORIGINS:
+            allow_origin = "*"
+        elif origin in ALLOWED_ORIGINS:
+            allow_origin = origin
+        else:
+            allow_origin = "*"  # permissive fallback
+
+        # Handle preflight OPTIONS immediately
+        if request.method == "OPTIONS":
+            return Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": allow_origin,
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "*",
+                    "Access-Control-Max-Age": "86400",
+                },
+            )
+
+        # Process normal request and inject CORS headers
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = allow_origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
 
 
 # --- App setup ---
@@ -41,21 +87,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - permissive for now; tighten in production by setting ALLOWED_ORIGINS
-allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
-allowed_origins = [
-    o.strip() for o in allowed_origins_raw.split(",") if o.strip()
-] or ["*"]
-
-logger.info("CORS allow_origins = %s", allowed_origins)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware)
 
 
 # --- Routes ---
