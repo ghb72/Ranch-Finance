@@ -10,6 +10,7 @@ import { renderReports } from './views/reports.js';
 import { renderSettings } from './views/settings.js';
 import { initSyncListeners } from './sync.js';
 import { getSetting, setSetting } from './db.js';
+import { inject } from '@vercel/analytics';
 
 /**
  * Create the app shell HTML
@@ -157,6 +158,9 @@ async function init() {
 
   // Check first run
   await checkFirstRun();
+
+  // Initialize Vercel Analytics
+  inject();
 }
 
 // Start the app
