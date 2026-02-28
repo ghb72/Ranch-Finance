@@ -41,17 +41,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - allow the PWA to call the API from any origin during dev.
-# In production, restrict to the deployed PWA domain.
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "*",
-).split(",")
+# CORS configuration
+# - Dev: ALLOWED_ORIGINS=* (credentials disabled)
+# - Prod: explicit origins (credentials enabled)
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [
+    origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()
+]
+
+if not allowed_origins:
+    allowed_origins = ["*"]
+
+allow_all_origins = "*" in allowed_origins
+allow_credentials = not allow_all_origins
+allowed_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all_origins else allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
