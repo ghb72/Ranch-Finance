@@ -1,0 +1,11 @@
+# Credenciales de Google (nunca subir al repo)
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Virtual environment
+venv/
+.venv/
