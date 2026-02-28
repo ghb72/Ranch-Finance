@@ -92,9 +92,9 @@ app.add_middleware(CORSMiddleware)
 
 # --- Routes ---
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
-    """Root endpoint for platform health checks."""
+    """Root endpoint for platform health checks (GET + HEAD)."""
     return {"status": "ok", "service": "RanchoFinanzas API"}
 
 
