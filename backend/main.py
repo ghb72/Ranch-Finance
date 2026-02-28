@@ -41,32 +41,30 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration
-# - Dev: ALLOWED_ORIGINS=* (credentials disabled)
-# - Prod: explicit origins (credentials enabled)
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+# CORS - permissive for now; tighten in production by setting ALLOWED_ORIGINS
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
 allowed_origins = [
-    origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()
-]
+    o.strip() for o in allowed_origins_raw.split(",") if o.strip()
+] or ["*"]
 
-if not allowed_origins:
-    allowed_origins = ["*"]
-
-allow_all_origins = "*" in allowed_origins
-allow_credentials = not allow_all_origins
-allowed_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX")
+logger.info("CORS allow_origins = %s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allow_all_origins else allowed_origins,
-    allow_origin_regex=allowed_origin_regex,
-    allow_credentials=allow_credentials,
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 
 # --- Routes ---
+
+@app.get("/")
+async def root():
+    """Root endpoint for platform health checks."""
+    return {"status": "ok", "service": "RanchoFinanzas API"}
+
 
 @app.get("/api/health")
 async def health_check():
