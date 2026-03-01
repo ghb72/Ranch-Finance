@@ -1,17 +1,32 @@
 /**
- * sync.js - Offline-first synchronization logic
- * Handles sending pending transactions to the backend when online
+ * sync.js - Bidirectional offline-first synchronization logic
+ * Push: send pending local transactions to the server.
+ * Pull: fetch remote transactions and merge into IndexedDB.
  */
-import { getPendingTransactions, markAsSynced } from './db.js';
+import {
+  getPendingTransactions,
+  markAsSynced,
+  upsertRemoteTransaction,
+  getLastSyncTimestamp,
+  setLastSyncTimestamp,
+} from './db.js';
 import { showToast } from './utils.js';
 
-// Backend URL - will be configured when backend is deployed
-const API_URL = localStorage.getItem('api_url') || '';
+/**
+ * Returns the current API URL (re-read each call so settings changes apply).
+ */
+function getApiUrl() {
+  return localStorage.getItem('api_url') || '';
+}
 
 /**
  * Attempt to sync pending transactions to the backend
  */
-export async function syncPendingTransactions() {
+/**
+ * Push pending local transactions to the server.
+ */
+export async function pushPendingTransactions() {
+  const API_URL = getApiUrl();
   if (!navigator.onLine || !API_URL) {
     return { synced: 0, pending: 0 };
   }
@@ -22,7 +37,6 @@ export async function syncPendingTransactions() {
       return { synced: 0, pending: 0 };
     }
 
-    // Send batch to backend
     const response = await fetch(`${API_URL}/api/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -36,24 +50,79 @@ export async function syncPendingTransactions() {
           metodoPago: t.metodoPago,
           usuario: t.usuario,
           createdAt: t.createdAt,
-          // Don't send photo data in sync for now (too large)
         })),
       }),
     });
 
     if (response.ok) {
-      const result = await response.json();
       const localIds = pending.map((t) => t.localId);
       await markAsSynced(localIds);
       return { synced: localIds.length, pending: 0 };
-    } else {
-      console.error('Sync failed:', response.status);
-      return { synced: 0, pending: pending.length };
     }
+    console.error('Push failed:', response.status);
+    return { synced: 0, pending: pending.length };
   } catch (err) {
-    console.error('Sync error:', err);
+    console.error('Push error:', err);
     return { synced: 0, pending: (await getPendingTransactions()).length };
   }
+}
+
+/**
+ * Pull remote transactions from the server and merge into IndexedDB.
+ * Only fetches records newer than the last pull timestamp when available.
+ */
+export async function pullRemoteTransactions() {
+  const API_URL = getApiUrl();
+  if (!navigator.onLine || !API_URL) {
+    return { pulled: 0 };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/transactions`);
+    if (!response.ok) {
+      console.error('Pull failed:', response.status);
+      return { pulled: 0 };
+    }
+
+    const data = await response.json();
+    const remoteTransactions = data.transactions || [];
+
+    let inserted = 0;
+    for (const t of remoteTransactions) {
+      if (!t.id) continue;
+      const wasNew = await upsertRemoteTransaction({
+        id: t.id,
+        tipo: t.tipo,
+        monto: Number(t.monto),
+        fecha: t.fecha,
+        descripcion: t.descripcion || '',
+        metodoPago: t.metodoPago || 'efectivo',
+        usuario: t.usuario || '',
+        createdAt: t.createdAt || new Date().toISOString(),
+      });
+      if (wasNew) inserted++;
+    }
+
+    await setLastSyncTimestamp(new Date().toISOString());
+    return { pulled: inserted };
+  } catch (err) {
+    console.error('Pull error:', err);
+    return { pulled: 0 };
+  }
+}
+
+/**
+ * Full bidirectional sync: push first, then pull.
+ * Kept as the main public API (backward-compatible name).
+ */
+export async function syncPendingTransactions() {
+  const pushResult = await pushPendingTransactions();
+  const pullResult = await pullRemoteTransactions();
+  return {
+    synced: pushResult.synced,
+    pulled: pullResult.pulled,
+    pending: pushResult.pending,
+  };
 }
 
 /**
@@ -78,8 +147,11 @@ export function initSyncListeners() {
   window.addEventListener('online', async () => {
     showToast('🟢 Conexión restaurada. Sincronizando...', 'info');
     const result = await syncPendingTransactions();
-    if (result.synced > 0) {
-      showToast(`✅ ${result.synced} transacción(es) sincronizada(s)`, 'success');
+    const parts = [];
+    if (result.synced > 0) parts.push(`⬆ ${result.synced} enviada(s)`);
+    if (result.pulled > 0) parts.push(`⬇ ${result.pulled} recibida(s)`);
+    if (parts.length > 0) {
+      showToast(`✅ ${parts.join(', ')}`, 'success');
     }
   });
 

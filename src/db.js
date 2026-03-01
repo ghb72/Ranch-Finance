@@ -128,4 +128,36 @@ export async function getTotalBalance() {
   return { ingresos, gastos, balance: ingresos - gastos };
 }
 
+/**
+ * Upsert a transaction from the remote server.
+ * If a transaction with the same `id` already exists locally, skip it.
+ * Otherwise insert it as already synced.
+ */
+export async function upsertRemoteTransaction(transaction) {
+  const existing = await db.transactions.where('id').equals(transaction.id).first();
+  if (existing) return false; // already exists locally
+
+  await db.transactions.add({
+    ...transaction,
+    syncStatus: 'synced',
+  });
+  return true; // new record inserted
+}
+
+/**
+ * Get the most recent createdAt timestamp among synced transactions.
+ * Used to request only newer records from the server.
+ */
+export async function getLastSyncTimestamp() {
+  const setting = await db.settings.get('lastPullTimestamp');
+  return setting ? setting.value : null;
+}
+
+/**
+ * Save the timestamp of the last successful pull.
+ */
+export async function setLastSyncTimestamp(timestamp) {
+  return await db.settings.put({ key: 'lastPullTimestamp', value: timestamp });
+}
+
 export default db;

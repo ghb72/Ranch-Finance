@@ -4,7 +4,7 @@
  */
 import { getSetting, setSetting, getPendingTransactions, getAllTransactions, deleteTransaction } from '../db.js';
 import { showToast, formatCurrency } from '../utils.js';
-import { syncPendingTransactions, setApiUrl } from '../sync.js';
+import { syncPendingTransactions, setApiUrl, pullRemoteTransactions } from '../sync.js';
 import { getTotalBalance } from '../db.js';
 import db from '../db.js';
 
@@ -216,8 +216,12 @@ function setupSettingsListeners(container) {
 
     try {
       const result = await syncPendingTransactions();
-      if (result.synced > 0) {
-        showToast(`✅ ${result.synced} transacción(es) sincronizada(s)`, 'success');
+      const parts = [];
+      if (result.synced > 0) parts.push(`⬆ ${result.synced} enviada(s)`);
+      if (result.pulled > 0) parts.push(`⬇ ${result.pulled} recibida(s)`);
+
+      if (parts.length > 0) {
+        showToast(`✅ ${parts.join(', ')}`, 'success');
         statusEl.textContent = result.pending > 0 ? `${result.pending} pendiente(s)` : 'Todo sincronizado';
       } else if (result.pending > 0) {
         showToast('⚠️ No se pudo sincronizar', 'error');
@@ -226,6 +230,8 @@ function setupSettingsListeners(container) {
         showToast('✅ Todo está sincronizado', 'success');
         statusEl.textContent = 'Todo sincronizado';
       }
+      // Refresh settings to show updated counts
+      renderSettings();
     } catch (err) {
       showToast('Error de sincronización', 'error');
       statusEl.textContent = 'Error';
