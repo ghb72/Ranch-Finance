@@ -29,7 +29,7 @@ CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 
 HEADERS = [
     "ID", "Tipo", "Monto", "Fecha",
-    "Descripción", "Método de Pago",
+    "Descripción", "Categoría", "Método de Pago",
     "Usuario", "Creado",
 ]
 
@@ -125,6 +125,7 @@ def append_transactions(transactions: list[dict]) -> int:
             t["monto"],
             t["fecha"],
             t.get("descripcion", ""),
+            t.get("categoria", "general"),
             t.get("metodoPago", "efectivo"),
             t.get("usuario", "Usuario"),
             t.get("createdAt", datetime.now().isoformat()),

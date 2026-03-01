@@ -164,6 +164,7 @@ async def get_transactions(
                 "monto": float(r.get("Monto", 0)),
                 "fecha": r.get("Fecha", ""),
                 "descripcion": r.get("Descripción", ""),
+                "categoria": r.get("Categoría", "general"),
                 "metodoPago": r.get("Método de Pago", "efectivo"),
                 "usuario": r.get("Usuario", ""),
                 "createdAt": r.get("Creado", ""),

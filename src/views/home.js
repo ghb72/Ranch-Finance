@@ -4,7 +4,7 @@
  * Supports long-press to delete transactions.
  */
 import { getAllTransactions, getTotalBalance, deleteTransaction } from '../db.js';
-import { formatCurrency, formatRelativeDate, showToast, getPaymentMethodLabel } from '../utils.js';
+import { formatCurrency, formatRelativeDate, showToast, getPaymentMethodLabel, getCategoryLabel } from '../utils.js';
 import { navigate } from '../router.js';
 
 /**
@@ -98,6 +98,7 @@ function renderTransactionItem(t) {
   const icon = t.tipo === 'ingreso' ? '📥' : '📤';
   const desc = t.descripcion || (t.tipo === 'ingreso' ? 'Ingreso' : 'Gasto');
   const sign = t.tipo === 'ingreso' ? '+' : '-';
+  const categoryTag = t.categoria ? getCategoryLabel(t.categoria) : '';
   const syncIcon = t.syncStatus === 'pending'
     ? '<span class="sync-badge sync-badge--pending">⏳</span>'
     : '';
@@ -110,7 +111,7 @@ function renderTransactionItem(t) {
       <div class="transaction-item__info">
         <div class="transaction-item__desc">${desc}</div>
         <div class="transaction-item__date">
-          ${formatRelativeDate(t.fecha)} · ${getPaymentMethodLabel(t.metodoPago)}
+          ${formatRelativeDate(t.fecha)} · ${categoryTag}
           ${syncIcon}
         </div>
       </div>

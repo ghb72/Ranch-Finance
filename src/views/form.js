@@ -71,6 +71,16 @@ export async function renderForm(params = {}) {
         </div>
 
         <div class="form-group">
+          <label class="form-group__label">Categoría</label>
+          <select class="form-group__select" id="input-categoria">
+            <option value="agricultura">🌾 Agricultura</option>
+            <option value="engorda">🐄 Engorda</option>
+            <option value="sierra">⛰️ Ganado en Sierra</option>
+            <option value="general" selected>🏠 Gastos Generales / Casa</option>
+          </select>
+        </div>
+
+        <div class="form-group">
           <label class="form-group__label">Método de Pago</label>
           <select class="form-group__select" id="input-metodo">
             <option value="efectivo" selected>💵 Efectivo</option>
@@ -167,6 +177,7 @@ function setupFormListeners(container, tipo, currentUser) {
       monto,
       fecha: document.getElementById('input-fecha').value || getToday(),
       descripcion: document.getElementById('input-descripcion').value.trim(),
+      categoria: document.getElementById('input-categoria').value,
       metodoPago: document.getElementById('input-metodo').value,
       comprobante: photoData,
       usuario: currentUser,

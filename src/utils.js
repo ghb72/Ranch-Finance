@@ -132,6 +132,22 @@ export function getPaymentMethodLabel(method) {
   return labels[method] || method;
 }
 
+/** Category definitions used across the app. */
+export const CATEGORIES = {
+  agricultura: { emoji: '🌾', label: 'Agricultura' },
+  engorda:     { emoji: '🐄', label: 'Engorda' },
+  sierra:      { emoji: '⛰️', label: 'Ganado en Sierra' },
+  general:     { emoji: '🏠', label: 'Gastos Generales / Casa' },
+};
+
+/**
+ * Get the label (with emoji) for a category key.
+ */
+export function getCategoryLabel(key) {
+  const cat = CATEGORIES[key];
+  return cat ? `${cat.emoji} ${cat.label}` : key;
+}
+
 /**
  * Debounce a function
  */

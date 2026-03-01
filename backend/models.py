@@ -12,6 +12,14 @@ class TransactionType(str, Enum):
     GASTO = "gasto"
 
 
+class Category(str, Enum):
+    """Allowed transaction categories."""
+    AGRICULTURA = "agricultura"
+    ENGORDA = "engorda"
+    SIERRA = "sierra"
+    GENERAL = "general"
+
+
 class PaymentMethod(str, Enum):
     """Allowed payment methods."""
     EFECTIVO = "efectivo"
@@ -27,6 +35,7 @@ class TransactionIn(BaseModel):
     monto: float = Field(..., gt=0, description="Amount in MXN")
     fecha: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     descripcion: Optional[str] = ""
+    categoria: Category = Category.GENERAL
     metodoPago: PaymentMethod = PaymentMethod.EFECTIVO
     usuario: Optional[str] = "Usuario"
     createdAt: Optional[str] = None

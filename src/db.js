@@ -11,6 +11,15 @@ db.version(1).stores({
   settings: 'key',
 });
 
+db.version(2).stores({
+  transactions: '++localId, id, tipo, monto, fecha, descripcion, categoria, metodoPago, usuario, syncStatus, createdAt',
+  settings: 'key',
+}).upgrade((tx) => {
+  return tx.table('transactions').toCollection().modify((t) => {
+    if (!t.categoria) t.categoria = 'general';
+  });
+});
+
 /**
  * Add a new transaction
  */
