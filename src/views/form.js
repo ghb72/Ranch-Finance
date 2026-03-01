@@ -71,12 +71,13 @@ export async function renderForm(params = {}) {
         </div>
 
         <div class="form-group">
-          <label class="form-group__label">Categoría</label>
-          <select class="form-group__select" id="input-categoria">
+          <label class="form-group__label">Categoría *</label>
+          <select class="form-group__select" id="input-categoria" required>
+            <option value="" disabled selected>Selecciona una categoría...</option>
             <option value="agricultura">🌾 Agricultura</option>
             <option value="engorda">🐄 Engorda</option>
             <option value="sierra">⛰️ Ganado en Sierra</option>
-            <option value="general" selected>🏠 Gastos Generales / Casa</option>
+            <option value="general">🏠 Gastos Generales / Casa</option>
           </select>
         </div>
 
@@ -163,6 +164,13 @@ function setupFormListeners(container, tipo, currentUser) {
     if (!monto || monto <= 0 || isNaN(monto)) {
       showToast('Ingresa un monto válido', 'error');
       montoInput.focus();
+      return;
+    }
+
+    const categoriaInput = document.getElementById('input-categoria');
+    if (!categoriaInput.value) {
+      showToast('Selecciona una categoría', 'error');
+      categoriaInput.focus();
       return;
     }
 
