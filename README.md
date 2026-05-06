@@ -35,6 +35,17 @@ python main.py
 
 El API corre en http://localhost:8000
 
+### Entorno Local con Conda
+
+```bash
+conda env create -f environment.yml
+conda activate ranch-finance
+cd backend
+python main.py
+```
+
+Si actualizas [backend/requirements.txt](backend/requirements.txt), recrea el entorno o actualiza sus paquetes para mantenerlo alineado.
+
 ### Configurar Google Sheets
 
 1. Ve a [Google Cloud Console](https://console.cloud.google.com)
