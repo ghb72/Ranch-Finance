@@ -86,7 +86,7 @@ Para usarlo en Supabase SQL Editor:
 
 Variables de entorno relevantes en backend:
 
-- DATA_PROVIDER=sheets o supabase
+- DATA_PROVIDER=supabase
 - SUPABASE_DB_URL para conexión directa a Postgres
 - SUPABASE_URL y SUPABASE_KEY como alternativa para futuras integraciones
 

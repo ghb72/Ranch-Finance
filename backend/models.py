@@ -1,7 +1,7 @@
 """
 models.py - Pydantic models for request/response validation.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from enum import Enum
 
@@ -30,24 +30,28 @@ class PaymentMethod(str, Enum):
 
 class TransactionIn(BaseModel):
     """Transaction received from the frontend."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = Field(..., min_length=1, description="UUID from client")
     tipo: TransactionType
     monto: float = Field(..., gt=0, description="Amount in MXN")
     fecha: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     descripcion: Optional[str] = ""
     categoria: Category = Category.GENERAL
-    metodoPago: PaymentMethod = PaymentMethod.EFECTIVO
+    metodoPago: PaymentMethod = Field(default=PaymentMethod.EFECTIVO, alias="metodo_pago")
     usuario: Optional[str] = "Usuario"
-    createdAt: Optional[str] = None
+    createdAt: Optional[str] = Field(default=None, alias="created_at")
+    updatedAt: Optional[str] = Field(default=None, alias="updated_at")
+    deletedAt: Optional[str] = Field(default=None, alias="deleted_at")
+    syncVersion: Optional[int] = Field(default=None, alias="sync_version")
+    sourceClientId: Optional[str] = Field(default=None, alias="source_client_id")
+    createdBy: Optional[str] = Field(default=None, alias="created_by")
+    updatedBy: Optional[str] = Field(default=None, alias="updated_by")
 
 
 class TransactionOut(TransactionIn):
     """Transaction returned by the sync API with server metadata."""
-
-    updatedAt: Optional[str] = None
-    deletedAt: Optional[str] = None
-    syncVersion: Optional[int] = None
-    sourceClientId: Optional[str] = None
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
 
 class SyncRequest(BaseModel):
@@ -64,6 +68,7 @@ class SyncResponse(BaseModel):
     """Response after syncing."""
     synced: int
     message: str
+    version: Optional[str] = None
 
 
 class SyncStateResponse(BaseModel):
@@ -79,6 +84,19 @@ class TransactionListResponse(BaseModel):
 
     transactions: list[TransactionOut]
     total: int
+    version: Optional[str] = None
+
+
+class TransactionSummary(BaseModel):
+    """Single transaction response."""
+
+    transaction: TransactionOut
+
+
+class DeleteResponse(BaseModel):
+    """Response for soft-delete operations."""
+
+    deleted: bool
     version: Optional[str] = None
 
 

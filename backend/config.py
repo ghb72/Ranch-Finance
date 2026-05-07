@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 
-DATA_PROVIDER = os.getenv("DATA_PROVIDER", "sheets").strip().lower() or "sheets"
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "supabase").strip().lower() or "supabase"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "").strip()
@@ -20,4 +20,4 @@ def get_data_provider() -> str:
     """Return the configured persistence provider."""
     if DATA_PROVIDER in {"sheets", "supabase"}:
         return DATA_PROVIDER
-    return "sheets"
+    return "supabase"

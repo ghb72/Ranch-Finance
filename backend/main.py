@@ -16,7 +16,16 @@ import logging
 
 from dotenv import load_dotenv
 from config import get_data_provider, is_supabase_enabled
-from models import SyncRequest, SyncResponse, SyncStateResponse, SummaryResponse
+from models import (
+    DeleteResponse,
+    SyncRequest,
+    SyncResponse,
+    SyncStateResponse,
+    SummaryResponse,
+    TransactionIn,
+    TransactionListResponse,
+    TransactionSummary,
+)
 
 load_dotenv()
 
@@ -91,6 +100,22 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware)
 
 
+def ensure_supabase_ready() -> None:
+    """Fail fast when the backend is not configured for Supabase."""
+
+    provider = get_data_provider()
+    if provider != "supabase":
+        raise HTTPException(
+            status_code=500,
+            detail="El backend ya no usa el proveedor legacy. Configura DATA_PROVIDER=supabase.",
+        )
+    if not is_supabase_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase no configurado. Define SUPABASE_DB_URL.",
+        )
+
+
 # --- Routes ---
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -115,49 +140,25 @@ async def health_check():
 async def get_sync_state():
     """Return the current remote sync state.
 
-    During migration, Google Sheets remains the legacy provider. Supabase is
-    intentionally gated until its repository layer is implemented.
+    Supabase is the only supported source of truth for synchronization.
     """
 
-    provider = get_data_provider()
-
-    if provider == "supabase":
-        if not is_supabase_enabled():
-            raise HTTPException(
-                status_code=503,
-                detail="Supabase no configurado. Define SUPABASE_DB_URL o SUPABASE_URL/SUPABASE_KEY.",
-            )
-
-        try:
-            from supabase_repo import get_sync_state as get_supabase_sync_state
-
-            sync_state = get_supabase_sync_state()
-            return SyncStateResponse(
-                version=sync_state["version"],
-                modified_at=sync_state["modified_at"],
-                provider="supabase",
-            )
-        except ModuleNotFoundError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail="Falta la dependencia psycopg para usar Supabase desde el backend.",
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("Error fetching sync state from Supabase")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
+    ensure_supabase_ready()
     try:
-        from sheets import get_sync_state as get_sheets_sync_state
+        from supabase_repo import get_sync_state as get_supabase_sync_state
 
-        sync_state = get_sheets_sync_state()
+        sync_state = get_supabase_sync_state()
         return SyncStateResponse(
             version=sync_state["version"],
             modified_at=sync_state["modified_at"],
-            provider="sheets",
+            provider="supabase",
         )
-    except FileNotFoundError as exc:
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Falta la dependencia psycopg para usar Supabase desde el backend.",
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error fetching sync state")
@@ -167,26 +168,24 @@ async def get_sync_state():
 @app.post("/api/sync", response_model=SyncResponse)
 async def sync_transactions(request: SyncRequest):
     """
-    Receive pending transactions from the PWA and write them to Google Sheets.
-    Duplicate IDs are silently skipped.
+    Receive pending transactions from the PWA and upsert them in Supabase.
     """
-    try:
-        from sheets import append_transactions
+    ensure_supabase_ready()
 
-        transactions_data = [t.model_dump() for t in request.transactions]
-        synced_count = append_transactions(transactions_data)
+    try:
+        from supabase_repo import upsert_transactions
+
+        transactions_data = [t.model_dump(by_alias=False) for t in request.transactions]
+        synced_count, version = upsert_transactions(transactions_data)
         logger.info("Synced %d transaction(s)", synced_count)
 
         return SyncResponse(
             synced=synced_count,
             message=f"✅ {synced_count} transacción(es) sincronizada(s)",
+            version=version,
         )
-    except FileNotFoundError as exc:
-        logger.error("Google Sheets not configured: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Google Sheets no configurado: {exc}",
-        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Sync error")
         raise HTTPException(
@@ -195,42 +194,126 @@ async def sync_transactions(request: SyncRequest):
         ) from exc
 
 
-@app.get("/api/transactions")
+@app.get("/api/transactions", response_model=TransactionListResponse)
 async def get_transactions(
     start_date: str = Query(None, description="YYYY-MM-DD"),
     end_date: str = Query(None, description="YYYY-MM-DD"),
+    since_version: int = Query(None, description="Only return records with sync_version greater than this value"),
+    include_deleted: bool = Query(False, description="Include soft-deleted records in the result"),
 ):
     """
-    Get transactions from Google Sheets.
-    Optionally filter by date range.
+    Get transactions from Supabase.
     """
+    ensure_supabase_ready()
+
     try:
-        from sheets import get_all_transactions, get_transactions_by_date_range
+        from supabase_repo import list_transactions
 
-        if start_date and end_date:
-            records = get_transactions_by_date_range(start_date, end_date)
-        else:
-            records = get_all_transactions()
-
-        normalized = []
-        for r in records:
-            normalized.append({
-                "id": r.get("ID", ""),
-                "tipo": r.get("Tipo", ""),
-                "monto": float(r.get("Monto", 0)),
-                "fecha": r.get("Fecha", ""),
-                "descripcion": r.get("Descripción", ""),
-                "categoria": r.get("Categoría", "general"),
-                "metodoPago": r.get("Método de Pago", "efectivo"),
-                "usuario": r.get("Usuario", ""),
-                "createdAt": r.get("Creado", ""),
-            })
-
-        return {"transactions": normalized, "total": len(normalized)}
-    except FileNotFoundError as exc:
+        transactions, version = list_transactions(
+            start_date=start_date,
+            end_date=end_date,
+            since_version=since_version,
+            include_deleted=include_deleted,
+        )
+        return TransactionListResponse(
+            transactions=transactions,
+            total=len(transactions),
+            version=version,
+        )
+    except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error fetching transactions")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/transactions/{transaction_id}", response_model=TransactionSummary)
+async def get_transaction(transaction_id: str):
+    """Get a single transaction from Supabase."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import get_transaction as repo_get_transaction
+
+        transaction = repo_get_transaction(transaction_id)
+        if transaction is None:
+            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+        return TransactionSummary(transaction=transaction)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error fetching transaction")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/transactions", response_model=TransactionSummary)
+async def create_transaction(request: TransactionIn):
+    """Create one transaction in Supabase."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import create_transaction as repo_create_transaction
+
+        transaction, _version = repo_create_transaction(request.model_dump(by_alias=False))
+        return TransactionSummary(transaction=transaction)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error creating transaction")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.put("/api/transactions/{transaction_id}", response_model=TransactionSummary)
+async def update_transaction(transaction_id: str, request: TransactionIn):
+    """Update one transaction in Supabase."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import update_transaction as repo_update_transaction
+
+        transaction, _version = repo_update_transaction(
+            transaction_id,
+            request.model_dump(by_alias=False),
+        )
+        if transaction is None:
+            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+        return TransactionSummary(transaction=transaction)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error updating transaction")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/api/transactions/{transaction_id}", response_model=DeleteResponse)
+async def delete_transaction(
+    transaction_id: str,
+    deleted_by: str = Query(None, description="User performing the delete"),
+):
+    """Soft-delete one transaction in Supabase."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import soft_delete_transaction
+
+        deleted, version = soft_delete_transaction(transaction_id, deleted_by=deleted_by)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+        return DeleteResponse(deleted=True, version=version)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error deleting transaction")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -240,31 +323,14 @@ async def get_summary(
     end_date: str = Query(None, description="YYYY-MM-DD"),
 ):
     """Get a financial summary for a date range."""
+    ensure_supabase_ready()
+
     try:
-        from sheets import get_all_transactions, get_transactions_by_date_range
+        from supabase_repo import get_summary as repo_get_summary
 
-        if start_date and end_date:
-            records = get_transactions_by_date_range(start_date, end_date)
-        else:
-            records = get_all_transactions()
-
-        total_ingresos = 0.0
-        total_gastos = 0.0
-
-        for r in records:
-            monto = float(r.get("Monto", 0))
-            if r.get("Tipo", "").lower() == "ingreso":
-                total_ingresos += monto
-            else:
-                total_gastos += monto
-
-        return SummaryResponse(
-            totalIngresos=total_ingresos,
-            totalGastos=total_gastos,
-            balance=total_ingresos - total_gastos,
-            transacciones=len(records),
-        )
-    except FileNotFoundError as exc:
+        summary = repo_get_summary(start_date=start_date, end_date=end_date)
+        return SummaryResponse(**summary)
+    except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error computing summary")
