@@ -4,7 +4,8 @@ credentials.json
 # Python
 __pycache__/
 *.pyc
-.env
+.env.*
+!.env.example
 
 # Virtual environment
 venv/
