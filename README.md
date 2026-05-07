@@ -1,6 +1,6 @@
 # 🐄 RanchoFinanzas
 
-App PWA de finanzas para ranchos. Control de ingresos y gastos con sincronización a Google Sheets.
+App PWA de finanzas para ranchos. Control de ingresos y gastos con sincronización offline-first, backend FastAPI y Google Sheets como integración operativa.
 
 ## Características
 
@@ -8,7 +8,8 @@ App PWA de finanzas para ranchos. Control de ingresos y gastos con sincronizaci�
 - **Offline-first** — funciona sin internet, sincroniza cuando hay conexión
 - **Interfaz ultra-simple** — dos botones: Ingreso y Gasto
 - **Reportes** — gráficas diarias, semanales y mensuales
-- **Google Sheets** — todos los datos se sincronizan a una hoja de cálculo
+- **Google Sheets** — integración operativa y exportación de datos
+- **Supabase/Postgres** — fuente de verdad en la nueva arquitectura de sincronización
 - **Multi-usuario** — varios usuarios del rancho pueden registrar transacciones
 
 ## Inicio Rápido
@@ -64,7 +65,30 @@ Si actualizas [backend/requirements.txt](backend/requirements.txt), recrea el en
 | DB Local | Dexie.js (IndexedDB) |
 | Gráficas | Chart.js |
 | Backend | FastAPI (Python) |
-| Base de datos | Google Sheets |
+| Base de datos | Supabase/Postgres + Google Sheets |
+
+## Supabase
+
+El backend ya incluye un esquema inicial para Supabase en [backend/sql/supabase_schema.sql](backend/sql/supabase_schema.sql). Ese archivo crea:
+
+- tabla principal de transacciones
+- tabla de auditoría de cambios
+- tabla de clientes de sincronización
+- tabla global de estado de sincronización
+- índices para pulls incrementales
+- triggers para updated_at, sync_version y auditoría
+
+Para usarlo en Supabase SQL Editor:
+
+```sql
+-- Pega el contenido de backend/sql/supabase_schema.sql y ejecútalo
+```
+
+Variables de entorno relevantes en backend:
+
+- DATA_PROVIDER=sheets o supabase
+- SUPABASE_DB_URL para conexión directa a Postgres
+- SUPABASE_URL y SUPABASE_KEY como alternativa para futuras integraciones
 
 ## Estructura
 

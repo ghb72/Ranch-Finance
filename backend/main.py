@@ -15,7 +15,8 @@ import os
 import logging
 
 from dotenv import load_dotenv
-from models import SyncRequest, SyncResponse, SummaryResponse
+from config import get_data_provider, is_supabase_enabled
+from models import SyncRequest, SyncResponse, SyncStateResponse, SummaryResponse
 
 load_dotenv()
 
@@ -105,7 +106,62 @@ async def health_check():
         "status": "ok",
         "service": "RanchoFinanzas API",
         "version": "1.0.0",
+        "data_provider": get_data_provider(),
+        "supabase_configured": is_supabase_enabled(),
     }
+
+
+@app.get("/api/sync/state", response_model=SyncStateResponse)
+async def get_sync_state():
+    """Return the current remote sync state.
+
+    During migration, Google Sheets remains the legacy provider. Supabase is
+    intentionally gated until its repository layer is implemented.
+    """
+
+    provider = get_data_provider()
+
+    if provider == "supabase":
+        if not is_supabase_enabled():
+            raise HTTPException(
+                status_code=503,
+                detail="Supabase no configurado. Define SUPABASE_DB_URL o SUPABASE_URL/SUPABASE_KEY.",
+            )
+
+        try:
+            from supabase_repo import get_sync_state as get_supabase_sync_state
+
+            sync_state = get_supabase_sync_state()
+            return SyncStateResponse(
+                version=sync_state["version"],
+                modified_at=sync_state["modified_at"],
+                provider="supabase",
+            )
+        except ModuleNotFoundError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Falta la dependencia psycopg para usar Supabase desde el backend.",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Error fetching sync state from Supabase")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    try:
+        from sheets import get_sync_state as get_sheets_sync_state
+
+        sync_state = get_sheets_sync_state()
+        return SyncStateResponse(
+            version=sync_state["version"],
+            modified_at=sync_state["modified_at"],
+            provider="sheets",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error fetching sync state")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/sync", response_model=SyncResponse)

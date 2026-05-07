@@ -41,6 +41,15 @@ class TransactionIn(BaseModel):
     createdAt: Optional[str] = None
 
 
+class TransactionOut(TransactionIn):
+    """Transaction returned by the sync API with server metadata."""
+
+    updatedAt: Optional[str] = None
+    deletedAt: Optional[str] = None
+    syncVersion: Optional[int] = None
+    sourceClientId: Optional[str] = None
+
+
 class SyncRequest(BaseModel):
     """Batch of transactions to sync."""
     transactions: list[TransactionIn] = Field(
@@ -55,6 +64,22 @@ class SyncResponse(BaseModel):
     """Response after syncing."""
     synced: int
     message: str
+
+
+class SyncStateResponse(BaseModel):
+    """Version stamp used by clients to skip unnecessary pulls."""
+
+    version: str
+    modified_at: str
+    provider: str
+
+
+class TransactionListResponse(BaseModel):
+    """List response for incremental pull implementations."""
+
+    transactions: list[TransactionOut]
+    total: int
+    version: Optional[str] = None
 
 
 class SummaryResponse(BaseModel):

@@ -14,6 +14,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import os
 import json
+import hashlib
 import logging
 from datetime import datetime
 
@@ -154,3 +155,32 @@ def get_transactions_by_date_range(
         r for r in all_records
         if start_date <= r.get("Fecha", "") <= end_date
     ]
+
+
+def get_sync_state() -> dict[str, str]:
+    """Return a lightweight sync state for the legacy Sheets provider.
+
+    The current Sheets path is append-only, so a version derived from count,
+    latest created timestamp and latest ID is enough to detect remote changes.
+    """
+
+    records = get_all_transactions()
+    if not records:
+        now = datetime.utcnow().isoformat()
+        return {
+            "version": "0",
+            "modified_at": now,
+        }
+
+    latest_record = max(
+        records,
+        key=lambda record: (record.get("Creado", ""), record.get("ID", "")),
+    )
+    latest_created = latest_record.get("Creado", "") or datetime.utcnow().isoformat()
+    latest_id = latest_record.get("ID", "")
+    version_seed = f"{len(records)}:{latest_created}:{latest_id}".encode("utf-8")
+
+    return {
+        "version": hashlib.sha256(version_seed).hexdigest()[:16],
+        "modified_at": latest_created,
+    }
