@@ -1,11 +1,9 @@
 /**
  * settings.js - Settings view
- * User name, sync status, backend URL visibility, and manual sync trigger.
+ * User name, sync status, connectivity and local summary.
  */
 import { getSetting, setSetting, getPendingTransactions, getAllTransactions, getSyncStatusSnapshot, getTotalBalance } from '../db.js';
 import { showToast, formatCurrency } from '../utils.js';
-import { getApiUrl, syncPendingTransactions } from '../sync.js';
-import db from '../db.js';
 
 /**
  * Render the settings view
@@ -19,7 +17,6 @@ export async function renderSettings() {
   const allTransactions = await getAllTransactions();
   const syncSnapshot = await getSyncStatusSnapshot();
   const balance = await getTotalBalance();
-  const apiUrl = getApiUrl();
 
   container.innerHTML = `
     <div class="header">
@@ -46,22 +43,6 @@ export async function renderSettings() {
         </div>
         <span class="settings-item__value" id="sync-status">
           ${pending.length > 0 ? `${pending.length} pendiente(s)` : 'Todo sincronizado'}
-        </span>
-      </div>
-      <div class="settings-item" id="setting-sync">
-        <div class="settings-item__left">
-          <span class="settings-item__icon">🔄</span>
-          <span class="settings-item__label">Sincronizar ahora</span>
-        </div>
-        <span class="settings-item__value">→</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-item__left">
-          <span class="settings-item__icon">🌐</span>
-          <span class="settings-item__label">URL del servidor</span>
-        </div>
-        <span class="settings-item__value" style="max-width:140px; overflow:hidden; text-overflow:ellipsis;" id="api-display">
-          ${apiUrl || 'No configurado'}
         </span>
       </div>
     </div>
@@ -102,13 +83,6 @@ export async function renderSettings() {
           ${formatCurrency(balance.balance)}
         </span>
       </div>
-      <div class="settings-item" id="setting-clear" style="color: var(--color-accent-red);">
-        <div class="settings-item__left">
-          <span class="settings-item__icon">🗑️</span>
-          <span class="settings-item__label">Borrar todos los datos</span>
-        </div>
-        <span class="settings-item__value">→</span>
-      </div>
     </div>
 
     <div class="section-title">Acerca de</div>
@@ -119,13 +93,6 @@ export async function renderSettings() {
           <span class="settings-item__label">RanchoFinanzas</span>
         </div>
         <span class="settings-item__value">v1.0.0</span>
-      </div>
-      <div class="settings-item">
-        <div class="settings-item__left">
-          <span class="settings-item__icon">📄</span>
-          <span class="settings-item__label">Config backend</span>
-        </div>
-        <span class="settings-item__value">dotenv</span>
       </div>
     </div>
 
@@ -178,92 +145,5 @@ function setupSettingsListeners(container) {
         overlay.classList.remove('active');
       }
     });
-  });
-
-  // Manual sync
-  container.querySelector('#setting-sync').addEventListener('click', async () => {
-    const apiUrl = getApiUrl();
-    if (!apiUrl) {
-      showToast('Configura VITE_API_URL en tu dotenv del frontend', 'error');
-      return;
-    }
-    if (!navigator.onLine) {
-      showToast('🔴 Sin conexión a internet', 'error');
-      return;
-    }
-
-    const statusEl = document.getElementById('sync-status');
-    statusEl.textContent = 'Sincronizando...';
-
-    try {
-      const result = await syncPendingTransactions();
-      const parts = [];
-      if (result.synced > 0) parts.push(`⬆ ${result.synced} enviada(s)`);
-      if (result.pulled > 0) parts.push(`⬇ ${result.pulled} recibida(s)`);
-
-      if (parts.length > 0) {
-        showToast(`✅ ${parts.join(', ')}`, 'success');
-        statusEl.textContent = result.pending > 0 ? `${result.pending} pendiente(s)` : 'Todo sincronizado';
-      } else if (result.pending > 0) {
-        showToast('⚠️ No se pudo sincronizar', 'error');
-        statusEl.textContent = `${result.pending} pendiente(s)`;
-      } else {
-        showToast('✅ Todo está sincronizado', 'success');
-        statusEl.textContent = 'Todo sincronizado';
-      }
-      // Refresh settings to show updated counts
-      renderSettings();
-    } catch (err) {
-      showToast('Error de sincronización', 'error');
-      statusEl.textContent = 'Error';
-    }
-  });
-
-  // Clear all data
-  container.querySelector('#setting-clear').addEventListener('click', () => {
-    confirmClearData();
-  });
-}
-
-/**
- * Show confirmation to clear all local data
- */
-function confirmClearData() {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay active';
-  overlay.innerHTML = `
-    <div class="modal">
-      <h3 class="modal__title">🗑️ ¿Borrar todos los datos?</h3>
-      <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: var(--space-lg); font-size: var(--font-size-base);">
-        Se eliminarán todas las transacciones del dispositivo. Los datos remotos en Supabase no se afectan.
-      </p>
-      <div style="display:flex; gap: var(--space-md);">
-        <button class="modal__btn" id="clear-cancel" style="flex:1; background: var(--color-bg-card); color: var(--color-text-primary);">Cancelar</button>
-        <button class="modal__btn" id="clear-confirm" style="flex:1; background: var(--color-accent-red);">Borrar</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  const closeModal = () => {
-    overlay.classList.remove('active');
-    setTimeout(() => overlay.remove(), 300);
-  };
-
-  overlay.querySelector('#clear-cancel').addEventListener('click', closeModal);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal();
-  });
-
-  overlay.querySelector('#clear-confirm').addEventListener('click', async () => {
-    try {
-      await db.transactions.clear();
-      showToast('🗑️ Datos eliminados', 'success');
-      closeModal();
-      renderSettings();
-    } catch (err) {
-      showToast('Error al borrar datos', 'error');
-      closeModal();
-    }
   });
 }
