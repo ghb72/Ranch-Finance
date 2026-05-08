@@ -27,8 +27,8 @@ The app uses an offline-first push/pull sync model:
 ### Frontend (PWA)
 
 ```bash
+cd /home/guill/projects/Ranch-Finance/frontend
 cp .env.example .env
-cd /home/guill/projects/Ranch-Finance
 npm install
 npm run dev
 ```
@@ -126,7 +126,7 @@ The backend supports two server-side Supabase access modes:
 
 Recommended local setup:
 
-- Frontend: use VITE_API_URL in the root dotenv file.
+- Frontend: use VITE_API_URL in frontend/.env.
 - Backend: use the Supabase pooler DSN in backend/.env.
 - Do not expose server-side Supabase credentials in the frontend.
 
@@ -134,7 +134,12 @@ Recommended local setup:
 
 ```
 Ranch-Finance/
-├── src/                  # Frontend
+├── frontend/             # Frontend app root (Vite)
+│   ├── index.html        # HTML entry point
+│   ├── package.json      # Frontend scripts and deps
+│   ├── vite.config.js    # Vite + PWA config
+│   ├── public/           # Static assets
+│   ├── scripts/          # Frontend utility scripts
 │   ├── main.js           # Application entry point
 │   ├── db.js             # IndexedDB layer
 │   ├── sync.js           # Synchronization engine
@@ -153,7 +158,6 @@ Ranch-Finance/
 │   ├── requirements.txt
 │   └── sql/
 │       └── supabase_schema.sql
-├── index.html
-├── vite.config.js
-└── package.json
+├── environment.yml
+└── README.md
 ```
