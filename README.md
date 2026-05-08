@@ -1,28 +1,33 @@
 # 🐄 RanchoFinanzas
 
-App PWA de finanzas para ranchos. Control de ingresos y gastos con sincronización offline-first, backend FastAPI y Google Sheets como integración operativa.
+A finance PWA for ranch operations. Track income and expenses with offline-first synchronization, a FastAPI backend, and Google Sheets as an operational integration.
 
-## Características
+## Features
 
-- **PWA instalable** en Android, iOS y escritorio
-- **Offline-first** — funciona sin internet, sincroniza cuando hay conexión
-- **Interfaz ultra-simple** — dos botones: Ingreso y Gasto
-- **Reportes** — gráficas diarias, semanales y mensuales
-- **Google Sheets** — integración operativa y exportación de datos
-- **Supabase/Postgres** — fuente de verdad en la nueva arquitectura de sincronización
-- **Multi-usuario** — varios usuarios del rancho pueden registrar transacciones
+- **Installable PWA** for Android, iOS, and desktop
+- **Offline-first** — works without internet and syncs when connectivity returns
+- **Ultra-simple interface** — two main actions: Income and Expense
+- **Reports** — daily, weekly, monthly, and yearly charts
+- **Google Sheets** — operational integration and data export
+- **Supabase/Postgres** — source of truth in the new sync architecture
+- **Multi-user** — multiple ranch users can record transactions
 
-## Inicio Rápido
+## Quick Start
 
 ### Frontend (PWA)
 
 ```bash
-cd d:\Proyects\Finanzas
+cp .env.example .env
+cd /home/guill/projects/Ranch-Finance
 npm install
 npm run dev
 ```
 
-Abre http://localhost:5173 en tu navegador.
+Open http://localhost:5173 in your browser.
+
+Frontend environment variables:
+
+- VITE_API_URL with the backend base URL, for example http://localhost:8000
 
 ### Backend (Python)
 
@@ -34,9 +39,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-El API corre en http://localhost:8000
+The API runs at http://localhost:8000
 
-### Entorno Local con Conda
+### Local Conda Environment
 
 ```bash
 conda env create -f environment.yml
@@ -45,71 +50,78 @@ cd backend
 python main.py
 ```
 
-Si actualizas [backend/requirements.txt](backend/requirements.txt), recrea el entorno o actualiza sus paquetes para mantenerlo alineado.
+If you update [backend/requirements.txt](backend/requirements.txt), recreate the environment or update its packages to keep it aligned.
 
-### Configurar Google Sheets
+### Configure Google Sheets
 
-1. Ve a [Google Cloud Console](https://console.cloud.google.com)
-2. Crea un proyecto nuevo
-3. Habilita la **Google Sheets API** y **Google Drive API**
-4. Crea una **cuenta de servicio** y descarga el JSON
-5. Guárdalo como `backend/credentials.json`
-6. Crea una hoja de cálculo en Google Sheets y compártela con el email de la cuenta de servicio
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project
+3. Enable the **Google Sheets API** and **Google Drive API**
+4. Create a **service account** and download the JSON credentials
+5. Save it as `backend/credentials.json`
+6. Create a Google Sheet and share it with the service account email
 
-## Stack Tecnológico
+## Technology Stack
 
-| Componente | Tecnología |
+| Component | Technology |
 |---|---|
 | Frontend | Vite + Vanilla JS |
 | PWA | Workbox (vite-plugin-pwa) |
-| DB Local | Dexie.js (IndexedDB) |
-| Gráficas | Chart.js |
+| Local DB | Dexie.js (IndexedDB) |
+| Charts | Chart.js |
 | Backend | FastAPI (Python) |
-| Base de datos | Supabase/Postgres + Google Sheets |
+| Database | Supabase/Postgres + Google Sheets |
 
 ## Supabase
 
-El backend ya incluye un esquema inicial para Supabase en [backend/sql/supabase_schema.sql](backend/sql/supabase_schema.sql). Ese archivo crea:
+The backend already includes an initial Supabase schema in [backend/sql/supabase_schema.sql](backend/sql/supabase_schema.sql). That file creates:
 
-- tabla principal de transacciones
-- tabla de auditoría de cambios
-- tabla de clientes de sincronización
-- tabla global de estado de sincronización
-- índices para pulls incrementales
-- triggers para updated_at, sync_version y auditoría
+- main transactions table
+- change audit log table
+- sync clients table
+- global sync state table
+- indexes for incremental pulls
+- triggers for updated_at, sync_version, and auditing
 
-Para usarlo en Supabase SQL Editor:
+To use it in the Supabase SQL Editor:
 
 ```sql
--- Pega el contenido de backend/sql/supabase_schema.sql y ejecútalo
+-- Paste the contents of backend/sql/supabase_schema.sql and execute it
 ```
 
-Variables de entorno relevantes en backend:
+Relevant backend environment variables:
 
 - DATA_PROVIDER=supabase
-- SUPABASE_DB_URL para conexión directa a Postgres
-- SUPABASE_URL y SUPABASE_KEY como alternativa para futuras integraciones
+- SUPABASE_DB_URL for the backend PostgreSQL connection
+- SUPABASE_URL and SUPABASE_KEY for the backend HTTPS API path
 
-## Estructura
+The backend supports two server-side Supabase access modes:
+
+- Preferred for stable backend environments: use SUPABASE_DB_URL.
+- If your local environment does not have IPv6 connectivity, do not use the direct db....supabase.co:5432 host. Use the Supabase pooler connection string instead.
+- If you prefer HTTPS-only server access, set SUPABASE_URL and SUPABASE_KEY and the backend will use the Supabase API instead of psycopg.
+- Keep that DSN only in the backend environment, never in the frontend.
+
+## Structure
 
 ```
 Finanzas/
 ├── src/                  # Frontend
-│   ├── main.js           # Entrada principal
-│   ├── db.js             # IndexedDB
-│   ├── sync.js           # Sincronización
-│   ├── router.js         # Router SPA
-│   ├── utils.js          # Utilidades
-│   ├── styles.css        # Estilos
-│   └── views/            # Vistas
-│       ├── home.js       # Pantalla principal
-│       ├── form.js       # Formulario
-│       ├── reports.js    # Reportes
-│       └── settings.js   # Configuración
-├── backend/              # Servidor Python
+│   ├── main.js           # Application entry point
+│   ├── db.js             # IndexedDB layer
+│   ├── sync.js           # Synchronization engine
+│   ├── router.js         # SPA router
+│   ├── utils.js          # Utilities
+│   ├── styles.css        # Styles
+│   └── views/            # Views
+│       ├── home.js       # Home screen
+│       ├── form.js       # Transaction form
+│       ├── reports.js    # Reports
+│       └── settings.js   # Settings
+├── backend/              # Python server
 │   ├── main.py           # FastAPI
 │   ├── sheets.py         # Google Sheets
-│   ├── models.py         # Modelos
+│   ├── models.py         # Data models
 │   └── requirements.txt
 ├── index.html
 ├── vite.config.js

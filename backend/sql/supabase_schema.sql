@@ -47,7 +47,7 @@ create table if not exists transactions (
   descripcion text not null default '',
   categoria transaction_category not null default 'general',
   metodo_pago payment_method not null default 'efectivo',
-  usuario text not null default 'Usuario',
+  usuario text not null default 'User',
   comprobante_url text,
   source_client_id text references sync_clients (client_id) on update cascade,
   created_by text,
@@ -124,7 +124,7 @@ begin
       next_action := 'update';
     end if;
 
-    if row_to_json(new) is distinct from row_to_json(old) then
+    if to_jsonb(new) is distinct from to_jsonb(old) then
       new.sync_version := old.sync_version + 1;
     end if;
   end if;

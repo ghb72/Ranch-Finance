@@ -1,7 +1,7 @@
 """
 main.py - FastAPI backend for RanchoFinanzas
 
-Handles sync between the PWA and Google Sheets.
+Handles sync between the PWA and Supabase.
 
 Usage:
     uvicorn main:app --reload --port 8000
@@ -24,6 +24,7 @@ from models import (
     SummaryResponse,
     TransactionIn,
     TransactionListResponse,
+    TransactionOut,
     TransactionSummary,
 )
 
@@ -85,14 +86,14 @@ class CORSMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown events."""
-    logger.info("🐄 RanchoFinanzas Backend starting...")
+    logger.info("Finance PWA Backend starting...")
     yield
-    logger.info("🐄 RanchoFinanzas Backend stopped.")
+    logger.info("Finance PWA Backend stopped.")
 
 
 app = FastAPI(
     title="RanchoFinanzas API",
-    description="Backend for syncing the RanchoFinanzas PWA with Google Sheets",
+    description="Backend for syncing the RanchoFinanzas PWA with Supabase",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -107,12 +108,12 @@ def ensure_supabase_ready() -> None:
     if provider != "supabase":
         raise HTTPException(
             status_code=500,
-            detail="El backend ya no usa el proveedor legacy. Configura DATA_PROVIDER=supabase.",
+            detail="The backend no longer uses the legacy provider. Set DATA_PROVIDER=supabase.",
         )
     if not is_supabase_enabled():
         raise HTTPException(
             status_code=503,
-            detail="Supabase no configurado. Define SUPABASE_DB_URL.",
+            detail="Supabase is not configured. Set SUPABASE_DB_URL or SUPABASE_URL with SUPABASE_KEY.",
         )
 
 
@@ -156,7 +157,7 @@ async def get_sync_state():
     except ModuleNotFoundError as exc:
         raise HTTPException(
             status_code=500,
-            detail="Falta la dependencia psycopg para usar Supabase desde el backend.",
+            detail="Install backend requirements to enable Supabase access from the backend.",
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -181,7 +182,7 @@ async def sync_transactions(request: SyncRequest):
 
         return SyncResponse(
             synced=synced_count,
-            message=f"✅ {synced_count} transacción(es) sincronizada(s)",
+            message=f"✅ {synced_count} transaction(s) synced",
             version=version,
         )
     except ValueError as exc:
@@ -190,11 +191,11 @@ async def sync_transactions(request: SyncRequest):
         logger.exception("Sync error")
         raise HTTPException(
             status_code=500,
-            detail=f"Error de sincronización: {exc}",
+            detail=f"Synchronization error: {exc}",
         ) from exc
 
 
-@app.get("/api/transactions", response_model=TransactionListResponse)
+@app.get("/api/transactions", response_model=TransactionListResponse, response_model_by_alias=False)
 async def get_transactions(
     start_date: str = Query(None, description="YYYY-MM-DD"),
     end_date: str = Query(None, description="YYYY-MM-DD"),
@@ -216,7 +217,7 @@ async def get_transactions(
             include_deleted=include_deleted,
         )
         return TransactionListResponse(
-            transactions=transactions,
+            transactions=[TransactionOut.model_validate(transaction) for transaction in transactions],
             total=len(transactions),
             version=version,
         )
@@ -227,7 +228,7 @@ async def get_transactions(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.get("/api/transactions/{transaction_id}", response_model=TransactionSummary)
+@app.get("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
 async def get_transaction(transaction_id: str):
     """Get a single transaction from Supabase."""
 
@@ -238,8 +239,8 @@ async def get_transaction(transaction_id: str):
 
         transaction = repo_get_transaction(transaction_id)
         if transaction is None:
-            raise HTTPException(status_code=404, detail="Transacción no encontrada")
-        return TransactionSummary(transaction=transaction)
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        return TransactionSummary(transaction=TransactionOut.model_validate(transaction))
     except HTTPException:
         raise
     except ValueError as exc:
@@ -249,7 +250,7 @@ async def get_transaction(transaction_id: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/api/transactions", response_model=TransactionSummary)
+@app.post("/api/transactions", response_model=TransactionSummary, response_model_by_alias=False)
 async def create_transaction(request: TransactionIn):
     """Create one transaction in Supabase."""
 
@@ -259,7 +260,7 @@ async def create_transaction(request: TransactionIn):
         from supabase_repo import create_transaction as repo_create_transaction
 
         transaction, _version = repo_create_transaction(request.model_dump(by_alias=False))
-        return TransactionSummary(transaction=transaction)
+        return TransactionSummary(transaction=TransactionOut.model_validate(transaction))
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -267,7 +268,7 @@ async def create_transaction(request: TransactionIn):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.put("/api/transactions/{transaction_id}", response_model=TransactionSummary)
+@app.put("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
 async def update_transaction(transaction_id: str, request: TransactionIn):
     """Update one transaction in Supabase."""
 
@@ -281,8 +282,8 @@ async def update_transaction(transaction_id: str, request: TransactionIn):
             request.model_dump(by_alias=False),
         )
         if transaction is None:
-            raise HTTPException(status_code=404, detail="Transacción no encontrada")
-        return TransactionSummary(transaction=transaction)
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        return TransactionSummary(transaction=TransactionOut.model_validate(transaction))
     except HTTPException:
         raise
     except ValueError as exc:
@@ -306,7 +307,7 @@ async def delete_transaction(
 
         deleted, version = soft_delete_transaction(transaction_id, deleted_by=deleted_by)
         if not deleted:
-            raise HTTPException(status_code=404, detail="Transacción no encontrada")
+            raise HTTPException(status_code=404, detail="Transaction not found")
         return DeleteResponse(deleted=True, version=version)
     except HTTPException:
         raise
@@ -329,7 +330,12 @@ async def get_summary(
         from supabase_repo import get_summary as repo_get_summary
 
         summary = repo_get_summary(start_date=start_date, end_date=end_date)
-        return SummaryResponse(**summary)
+        return SummaryResponse(
+            totalIngresos=float(summary["totalIngresos"]),
+            totalGastos=float(summary["totalGastos"]),
+            balance=float(summary["balance"]),
+            transacciones=int(summary["transacciones"]),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

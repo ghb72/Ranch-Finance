@@ -39,7 +39,7 @@ class TransactionIn(BaseModel):
     descripcion: Optional[str] = ""
     categoria: Category = Category.GENERAL
     metodoPago: PaymentMethod = Field(default=PaymentMethod.EFECTIVO, alias="metodo_pago")
-    usuario: Optional[str] = "Usuario"
+    usuario: Optional[str] = "User"
     createdAt: Optional[str] = Field(default=None, alias="created_at")
     updatedAt: Optional[str] = Field(default=None, alias="updated_at")
     deletedAt: Optional[str] = Field(default=None, alias="deleted_at")
