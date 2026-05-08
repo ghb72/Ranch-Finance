@@ -1,6 +1,6 @@
 # 🐄 RanchoFinanzas
 
-A finance PWA for ranch operations. Track income and expenses with offline-first synchronization, a FastAPI backend, and Google Sheets as an operational integration.
+A finance PWA for ranch operations. Track income and expenses with offline-first synchronization, a FastAPI backend, and Supabase/Postgres as the source of truth.
 
 ## Features
 
@@ -8,9 +8,19 @@ A finance PWA for ranch operations. Track income and expenses with offline-first
 - **Offline-first** — works without internet and syncs when connectivity returns
 - **Ultra-simple interface** — two main actions: Income and Expense
 - **Reports** — daily, weekly, monthly, and yearly charts
-- **Google Sheets** — operational integration and data export
-- **Supabase/Postgres** — source of truth in the new sync architecture
+- **Supabase/Postgres** — source of truth for synchronization and storage
+- **Google Sheets** — optional operational integration and data export
 - **Multi-user** — multiple ranch users can record transactions
+
+## Sync Architecture
+
+The app uses an offline-first push/pull sync model:
+
+- Local writes are stored first in IndexedDB.
+- Pending local changes are pushed to the backend before pulling remote changes.
+- Remote pulls are incremental and use the latest sync version.
+- Automatic polling runs every 60 seconds while the tab is visible.
+- Polling pauses when the tab is hidden and resumes on focus or when connectivity returns.
 
 ## Quick Start
 
@@ -28,18 +38,24 @@ Open http://localhost:5173 in your browser.
 Frontend environment variables:
 
 - VITE_API_URL with the backend base URL, for example http://localhost:8000
+- You can provide more than one backend URL separated by commas for local fallback resolution.
 
 ### Backend (Python)
 
 ```bash
+cp backend/.env.example backend/.env
 cd backend
-python -m venv venv
-venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
+uvicorn main:app --reload --port 8000
 ```
 
 The API runs at http://localhost:8000
+
+Before starting the backend, configure Supabase in backend/.env:
+
+- Set DATA_PROVIDER=supabase
+- Set SUPABASE_DB_URL to the Supabase pooler DSN for normal backend usage
+- Or set SUPABASE_URL and SUPABASE_KEY for HTTPS-based backend access
 
 ### Local Conda Environment
 
@@ -47,12 +63,15 @@ The API runs at http://localhost:8000
 conda env create -f environment.yml
 conda activate ranch-finance
 cd backend
-python main.py
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
 ```
 
 If you update [backend/requirements.txt](backend/requirements.txt), recreate the environment or update its packages to keep it aligned.
 
 ### Configure Google Sheets
+
+Google Sheets is no longer the source of truth for synchronization. Configure it only if you want to use the operational export/integration path.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project
@@ -70,7 +89,8 @@ If you update [backend/requirements.txt](backend/requirements.txt), recreate the
 | Local DB | Dexie.js (IndexedDB) |
 | Charts | Chart.js |
 | Backend | FastAPI (Python) |
-| Database | Supabase/Postgres + Google Sheets |
+| Database | Supabase/Postgres |
+| Operational export | Google Sheets |
 
 ## Supabase
 
@@ -94,6 +114,8 @@ Relevant backend environment variables:
 - DATA_PROVIDER=supabase
 - SUPABASE_DB_URL for the backend PostgreSQL connection
 - SUPABASE_URL and SUPABASE_KEY for the backend HTTPS API path
+- PORT for the FastAPI server port
+- ALLOWED_ORIGINS for backend CORS configuration
 
 The backend supports two server-side Supabase access modes:
 
@@ -102,10 +124,16 @@ The backend supports two server-side Supabase access modes:
 - If you prefer HTTPS-only server access, set SUPABASE_URL and SUPABASE_KEY and the backend will use the Supabase API instead of psycopg.
 - Keep that DSN only in the backend environment, never in the frontend.
 
+Recommended local setup:
+
+- Frontend: use VITE_API_URL in the root dotenv file.
+- Backend: use the Supabase pooler DSN in backend/.env.
+- Do not expose server-side Supabase credentials in the frontend.
+
 ## Structure
 
 ```
-Finanzas/
+Ranch-Finance/
 ├── src/                  # Frontend
 │   ├── main.js           # Application entry point
 │   ├── db.js             # IndexedDB layer
@@ -122,7 +150,9 @@ Finanzas/
 │   ├── main.py           # FastAPI
 │   ├── sheets.py         # Google Sheets
 │   ├── models.py         # Data models
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── sql/
+│       └── supabase_schema.sql
 ├── index.html
 ├── vite.config.js
 └── package.json
