@@ -12,6 +12,45 @@ import { initSyncListeners } from './sync.js';
 import { getSetting, setSetting } from './db.js';
 import { inject } from '@vercel/analytics';
 
+const APP_SW_URL = new URL('/sw.js', window.location.origin).href;
+
+function getRegistrationScriptURL(registration) {
+  return registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
+}
+
+async function clearStaleCaches() {
+  if (!('caches' in window)) return;
+
+  const cacheNames = await caches.keys();
+  const staleCacheNames = cacheNames.filter((name) => (
+    name.startsWith('workbox-') ||
+    name === 'google-fonts-cache' ||
+    name === 'gstatic-fonts-cache'
+  ));
+
+  await Promise.all(staleCacheNames.map((name) => caches.delete(name)));
+}
+
+async function cleanupStaleServiceWorkers({ unregisterAll = false } = {}) {
+  if (!('serviceWorker' in navigator)) return false;
+
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  const staleRegistrations = registrations.filter((registration) => {
+    const scriptURL = getRegistrationScriptURL(registration);
+    if (!registration.scope.startsWith(window.location.origin)) return false;
+    if (unregisterAll) return true;
+    return Boolean(scriptURL) && scriptURL !== APP_SW_URL;
+  });
+
+  if (staleRegistrations.length === 0) {
+    return false;
+  }
+
+  await Promise.all(staleRegistrations.map((registration) => registration.unregister()));
+  await clearStaleCaches();
+  return true;
+}
+
 /**
  * Create the app shell HTML
  */
@@ -114,20 +153,31 @@ function showWelcomeModal() {
 async function registerSW() {
   if ('serviceWorker' in navigator) {
     try {
-      // vite-plugin-pwa handles this automatically in production
-      // In dev mode, we skip SW registration
-      if (import.meta.env.PROD) {
-        const { registerSW: register } = await import('virtual:pwa-register');
-        register({
-          onNeedRefresh() {
-            // Auto-update for simplicity
-            console.log('New content available, refreshing...');
-          },
-          onOfflineReady() {
-            console.log('App ready for offline use');
-          },
-        });
+      if (import.meta.env.DEV) {
+        await cleanupStaleServiceWorkers({ unregisterAll: true });
+        return;
       }
+
+      await cleanupStaleServiceWorkers();
+
+      // vite-plugin-pwa handles this automatically in production
+      const { registerSW: register } = await import('virtual:pwa-register');
+      register({
+        onNeedRefresh() {
+          // Auto-update for simplicity
+          console.log('New content available, refreshing...');
+        },
+        onOfflineReady() {
+          console.log('App ready for offline use');
+        },
+        async onRegisterError(error) {
+          console.error('SW registration failed:', error);
+          const recovered = await cleanupStaleServiceWorkers({ unregisterAll: true });
+          if (recovered) {
+            window.location.reload();
+          }
+        },
+      });
     } catch (err) {
       console.error('SW registration failed:', err);
     }
