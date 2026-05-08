@@ -5,6 +5,7 @@
 import Dexie from 'dexie';
 
 const db = new Dexie('RanchoFinanzasDB');
+const now = () => new Date().toISOString();
 
 db.version(1).stores({
   transactions: '++localId, id, tipo, monto, fecha, descripcion, metodoPago, usuario, syncStatus, createdAt',
@@ -20,22 +21,60 @@ db.version(2).stores({
   });
 });
 
+db.version(3).stores({
+  transactions: '++localId, &id, fecha, categoria, usuario, synced, deleted, updatedAt, syncVersion',
+  settings: 'key',
+}).upgrade((tx) => {
+  return tx.table('transactions').toCollection().modify((transaction) => {
+    const createdAt = transaction.createdAt || now();
+    transaction.createdAt = createdAt;
+    transaction.updatedAt = transaction.updatedAt || createdAt;
+    transaction.synced = transaction.syncStatus === 'synced' ? 1 : 0;
+    transaction.deleted = transaction.deleted ? 1 : 0;
+    transaction.deletedAt = transaction.deleted ? (transaction.deletedAt || transaction.updatedAt) : null;
+    transaction.syncVersion = transaction.syncVersion || 0;
+    delete transaction.syncStatus;
+  });
+});
+
+
+function normalizeLocalTransaction(transaction) {
+  return {
+    ...transaction,
+    categoria: transaction.categoria || 'general',
+    metodoPago: transaction.metodoPago || 'efectivo',
+    usuario: transaction.usuario || 'Usuario',
+    synced: typeof transaction.synced === 'number' ? transaction.synced : 0,
+    deleted: typeof transaction.deleted === 'number' ? transaction.deleted : 0,
+    createdAt: transaction.createdAt || now(),
+    updatedAt: transaction.updatedAt || transaction.createdAt || now(),
+    deletedAt: transaction.deleted ? (transaction.deletedAt || transaction.updatedAt || now()) : null,
+    syncVersion: transaction.syncVersion || 0,
+  };
+}
+
 /**
  * Add a new transaction
  */
 export async function addTransaction(transaction) {
-  return await db.transactions.add({
+  const timestamp = now();
+  return await db.transactions.add(normalizeLocalTransaction({
     ...transaction,
-    syncStatus: 'pending',
-    createdAt: new Date().toISOString(),
-  });
+    synced: 0,
+    deleted: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    deletedAt: null,
+    syncVersion: 0,
+  }));
 }
 
 /**
  * Get all transactions, sorted by date descending
  */
 export async function getAllTransactions() {
-  return await db.transactions.orderBy('createdAt').reverse().toArray();
+  const all = await db.transactions.orderBy('updatedAt').reverse().toArray();
+  return all.filter((transaction) => transaction.deleted !== 1);
 }
 
 /**
@@ -49,6 +88,7 @@ export async function getTransactionsByDateRange(startDate, endDate) {
 
   const all = await db.transactions.toArray();
   return all.filter((t) => {
+    if (t.deleted === 1) return false;
     const d = new Date(t.fecha);
     return d >= start && d <= end;
   });
@@ -58,7 +98,7 @@ export async function getTransactionsByDateRange(startDate, endDate) {
  * Get pending (unsynced) transactions
  */
 export async function getPendingTransactions() {
-  return await db.transactions.where('syncStatus').equals('pending').toArray();
+  return await db.transactions.where('synced').equals(0).toArray();
 }
 
 /**
@@ -68,7 +108,27 @@ export async function markAsSynced(localIds) {
   return await db.transactions
     .where('localId')
     .anyOf(localIds)
-    .modify({ syncStatus: 'synced' });
+    .modify((transaction) => {
+      transaction.synced = 1;
+    });
+}
+
+
+export async function markTransactionsAsSynced(syncResults) {
+  await db.transaction('rw', db.transactions, async () => {
+    for (const result of syncResults) {
+      const local = await db.transactions.where('id').equals(result.id).first();
+      if (!local) continue;
+
+      await db.transactions.update(local.localId, {
+        synced: 1,
+        deleted: result.deleted ? 1 : 0,
+        deletedAt: result.deletedAt || null,
+        updatedAt: result.updatedAt || local.updatedAt,
+        syncVersion: result.syncVersion || local.syncVersion || 0,
+      });
+    }
+  });
 }
 
 /**
@@ -115,7 +175,12 @@ export async function getSummary(startDate, endDate) {
  * Delete a transaction by localId
  */
 export async function deleteTransaction(localId) {
-  return await db.transactions.delete(localId);
+  return await db.transactions.update(localId, {
+    deleted: 1,
+    synced: 0,
+    deletedAt: now(),
+    updatedAt: now(),
+  });
 }
 
 /**
@@ -127,6 +192,7 @@ export async function getTotalBalance() {
   let gastos = 0;
 
   all.forEach((t) => {
+    if (t.deleted === 1) return;
     if (t.tipo === 'ingreso') {
       ingresos += t.monto;
     } else {
@@ -144,13 +210,26 @@ export async function getTotalBalance() {
  */
 export async function upsertRemoteTransaction(transaction) {
   const existing = await db.transactions.where('id').equals(transaction.id).first();
-  if (existing) return false; // already exists locally
-
-  await db.transactions.add({
+  const normalized = normalizeLocalTransaction({
     ...transaction,
-    syncStatus: 'synced',
+    synced: 1,
+    deleted: transaction.deletedAt ? 1 : 0,
   });
-  return true; // new record inserted
+
+  if (!existing) {
+    await db.transactions.add(normalized);
+    return true;
+  }
+
+  if (existing.synced === 0) {
+    return false;
+  }
+
+  await db.transactions.update(existing.localId, {
+    ...normalized,
+    localId: existing.localId,
+  });
+  return true;
 }
 
 /**
@@ -167,6 +246,30 @@ export async function getLastSyncTimestamp() {
  */
 export async function setLastSyncTimestamp(timestamp) {
   return await db.settings.put({ key: 'lastPullTimestamp', value: timestamp });
+}
+
+
+export async function getLastKnownSyncVersion() {
+  const setting = await db.settings.get('lastKnownSyncVersion');
+  return setting ? setting.value : null;
+}
+
+
+export async function setLastKnownSyncVersion(version) {
+  return await db.settings.put({ key: 'lastKnownSyncVersion', value: version });
+}
+
+
+export async function getSyncStatusSnapshot() {
+  const pending = await getPendingTransactions();
+  const lastKnownVersion = await getLastKnownSyncVersion();
+  const lastPullTimestamp = await getLastSyncTimestamp();
+
+  return {
+    pending: pending.length,
+    lastKnownVersion,
+    lastPullTimestamp,
+  };
 }
 
 export default db;

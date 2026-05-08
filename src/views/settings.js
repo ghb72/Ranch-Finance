@@ -1,11 +1,10 @@
 /**
  * settings.js - Settings view
- * User name, sync status, API URL configuration, and manual sync trigger.
+ * User name, sync status, backend URL visibility, and manual sync trigger.
  */
-import { getSetting, setSetting, getPendingTransactions, getAllTransactions, deleteTransaction } from '../db.js';
+import { getSetting, setSetting, getPendingTransactions, getAllTransactions, getSyncStatusSnapshot, getTotalBalance } from '../db.js';
 import { showToast, formatCurrency } from '../utils.js';
-import { syncPendingTransactions, setApiUrl, pullRemoteTransactions } from '../sync.js';
-import { getTotalBalance } from '../db.js';
+import { getApiUrl, syncPendingTransactions } from '../sync.js';
 import db from '../db.js';
 
 /**
@@ -18,8 +17,9 @@ export async function renderSettings() {
   const currentUser = (await getSetting('usuario')) || 'Sin nombre';
   const pending = await getPendingTransactions();
   const allTransactions = await getAllTransactions();
+  const syncSnapshot = await getSyncStatusSnapshot();
   const balance = await getTotalBalance();
-  const apiUrl = localStorage.getItem('api_url') || '';
+  const apiUrl = getApiUrl();
 
   container.innerHTML = `
     <div class="header">
@@ -55,7 +55,7 @@ export async function renderSettings() {
         </div>
         <span class="settings-item__value">→</span>
       </div>
-      <div class="settings-item" id="setting-api">
+      <div class="settings-item">
         <div class="settings-item__left">
           <span class="settings-item__icon">🌐</span>
           <span class="settings-item__label">URL del servidor</span>
@@ -74,6 +74,13 @@ export async function renderSettings() {
           <span class="settings-item__label">Internet</span>
         </div>
         <span class="settings-item__value">${navigator.onLine ? 'Conectado' : 'Sin conexión'}</span>
+      </div>
+      <div class="settings-item">
+        <div class="settings-item__left">
+          <span class="settings-item__icon">🧭</span>
+          <span class="settings-item__label">Versión remota</span>
+        </div>
+        <span class="settings-item__value">${syncSnapshot.lastKnownVersion || 'Sin sync'}</span>
       </div>
     </div>
 
@@ -113,6 +120,13 @@ export async function renderSettings() {
         </div>
         <span class="settings-item__value">v1.0.0</span>
       </div>
+      <div class="settings-item">
+        <div class="settings-item__left">
+          <span class="settings-item__icon">📄</span>
+          <span class="settings-item__label">Config backend</span>
+        </div>
+        <span class="settings-item__value">dotenv</span>
+      </div>
     </div>
 
     <!-- Modals -->
@@ -130,30 +144,13 @@ export async function renderSettings() {
         <button class="modal__btn" id="btn-save-user">Guardar</button>
       </div>
     </div>
-
-    <div class="modal-overlay" id="api-modal">
-      <div class="modal">
-        <h3 class="modal__title">🌐 URL del Servidor</h3>
-        <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: var(--space-md); font-size: var(--font-size-sm);">
-          URL del backend para sincronizar con Google Sheets
-        </p>
-        <input
-          type="url"
-          class="modal__input"
-          id="input-api-url"
-          placeholder="https://tu-backend.onrender.com"
-          value="${apiUrl}"
-        />
-        <button class="modal__btn" id="btn-save-api">Guardar</button>
-      </div>
-    </div>
   `;
 
   setupSettingsListeners(container);
 }
 
 /**
- * Attach event listeners for settings actions
+ * Attach event listeners for settings actions.
  */
 function setupSettingsListeners(container) {
   // Edit user name
@@ -174,22 +171,6 @@ function setupSettingsListeners(container) {
     }
   });
 
-  // Edit API URL
-  container.querySelector('#setting-api').addEventListener('click', () => {
-    document.getElementById('api-modal').classList.add('active');
-    document.getElementById('input-api-url').focus();
-  });
-
-  container.querySelector('#btn-save-api').addEventListener('click', () => {
-    const url = document.getElementById('input-api-url').value.trim();
-    // Remove trailing slash
-    const cleanUrl = url.replace(/\/+$/, '');
-    setApiUrl(cleanUrl);
-    document.getElementById('api-display').textContent = cleanUrl || 'No configurado';
-    document.getElementById('api-modal').classList.remove('active');
-    showToast(cleanUrl ? '✅ URL guardada' : '✅ URL eliminada');
-  });
-
   // Close modals on overlay click
   container.querySelectorAll('.modal-overlay').forEach((overlay) => {
     overlay.addEventListener('click', (e) => {
@@ -201,9 +182,9 @@ function setupSettingsListeners(container) {
 
   // Manual sync
   container.querySelector('#setting-sync').addEventListener('click', async () => {
-    const apiUrl = localStorage.getItem('api_url');
+    const apiUrl = getApiUrl();
     if (!apiUrl) {
-      showToast('Configura la URL del servidor primero', 'error');
+      showToast('Configura VITE_API_URL en tu dotenv del frontend', 'error');
       return;
     }
     if (!navigator.onLine) {
@@ -254,7 +235,7 @@ function confirmClearData() {
     <div class="modal">
       <h3 class="modal__title">🗑️ ¿Borrar todos los datos?</h3>
       <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: var(--space-lg); font-size: var(--font-size-base);">
-        Se eliminarán todas las transacciones del dispositivo. Los datos en Google Sheets no se afectan.
+        Se eliminarán todas las transacciones del dispositivo. Los datos remotos en Supabase no se afectan.
       </p>
       <div style="display:flex; gap: var(--space-md);">
         <button class="modal__btn" id="clear-cancel" style="flex:1; background: var(--color-bg-card); color: var(--color-text-primary);">Cancelar</button>

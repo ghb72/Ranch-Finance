@@ -7,7 +7,7 @@ import { addTransaction } from '../db.js';
 import { generateId, getToday, showToast } from '../utils.js';
 import { navigate } from '../router.js';
 import { getSetting } from '../db.js';
-import { registerBackgroundSync } from '../sync.js';
+import { registerBackgroundSync, syncPendingTransactions } from '../sync.js';
 
 let photoData = null;
 
@@ -200,6 +200,12 @@ function setupFormListeners(container, tipo, currentUser) {
 
       // Trigger background sync if available
       registerBackgroundSync().catch(() => {});
+
+      if (navigator.onLine) {
+        syncPendingTransactions().catch((error) => {
+          console.error('Immediate sync failed:', error);
+        });
+      }
 
       navigate('home');
     } catch (err) {

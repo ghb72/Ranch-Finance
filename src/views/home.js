@@ -4,7 +4,7 @@
  * Supports long-press to delete transactions.
  */
 import { getAllTransactions, getTotalBalance, deleteTransaction } from '../db.js';
-import { formatCurrency, formatRelativeDate, showToast, getPaymentMethodLabel, getCategoryLabel } from '../utils.js';
+import { formatCurrency, formatRelativeDate, showToast, getCategoryLabel } from '../utils.js';
 import { navigate } from '../router.js';
 
 /**
@@ -99,7 +99,7 @@ function renderTransactionItem(t) {
   const desc = t.descripcion || (t.tipo === 'ingreso' ? 'Ingreso' : 'Gasto');
   const sign = t.tipo === 'ingreso' ? '+' : '-';
   const categoryTag = t.categoria ? getCategoryLabel(t.categoria) : '';
-  const syncIcon = t.syncStatus === 'pending'
+  const syncIcon = t.synced === 0
     ? '<span class="sync-badge sync-badge--pending">⏳</span>'
     : '';
 
@@ -194,7 +194,7 @@ function confirmDelete(itemEl) {
         overlay.remove();
         renderHome(); // Refresh view with updated balance
       }, 300);
-      showToast('🗑️ Transacción eliminada', 'success');
+      showToast('🗑️ Transacción marcada para eliminar', 'success');
     } catch (err) {
       showToast('Error al eliminar', 'error');
       closeModal();
