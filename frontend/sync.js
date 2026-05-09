@@ -13,13 +13,10 @@ import {
   setLastKnownSyncVersion,
   setLastSyncTimestamp,
 } from './db.js';
+import { apiFetch, getApiUrl, isAuthenticated } from './auth.js';
 import { showToast } from './utils.js';
 
 const POLL_INTERVAL = 60_000;
-const ENV_API_URLS = (import.meta.env.VITE_API_URL || '')
-  .split(',')
-  .map((value) => value.trim().replace(/\/+$/, ''))
-  .filter(Boolean);
 let syncTimer = null;
 let isSyncing = false;
 
@@ -32,19 +29,6 @@ function dispatchSyncStatus(status, detail = {}) {
 function dispatchSyncComplete(detail = {}) {
   window.dispatchEvent(new CustomEvent('sync-complete', { detail }));
 }
-
-/**
- * Returns the preferred API URL.
- */
-export function getApiUrl() {
-  return ENV_API_URLS[0] || '';
-}
-
-
-function getApiUrls() {
-  return ENV_API_URLS;
-}
-
 
 function getClientId() {
   let clientId = localStorage.getItem('client_id');
@@ -64,30 +48,6 @@ async function fetchSyncState() {
   return await response.json();
 }
 
-
-async function apiFetch(path, options) {
-  const apiUrls = getApiUrls();
-  if (apiUrls.length === 0) {
-    throw new Error('Missing VITE_API_URL');
-  }
-
-  let lastError = null;
-
-  for (const baseUrl of apiUrls) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`, options);
-      if (response.ok || response.status < 500) {
-        return response;
-      }
-      lastError = new Error(`Request failed: ${response.status}`);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error(`Request failed for ${path}`);
-}
-
 /**
  * Attempt to sync pending transactions to the backend
  */
@@ -96,7 +56,7 @@ async function apiFetch(path, options) {
  */
 export async function pushPendingTransactions() {
   const API_URL = getApiUrl();
-  if (!navigator.onLine || !API_URL) {
+  if (!navigator.onLine || !API_URL || !isAuthenticated()) {
     return { synced: 0, pending: 0 };
   }
 
@@ -158,7 +118,7 @@ export async function pushPendingTransactions() {
  */
 export async function pullRemoteTransactions() {
   const API_URL = getApiUrl();
-  if (!navigator.onLine || !API_URL) {
+  if (!navigator.onLine || !API_URL || !isAuthenticated()) {
     return { pulled: 0 };
   }
 
@@ -223,7 +183,7 @@ export async function syncPendingTransactions() {
   }
 
   const API_URL = getApiUrl();
-  if (!API_URL) {
+  if (!API_URL || !isAuthenticated()) {
     return { synced: 0, pulled: 0, pending: (await getSyncStatusSnapshot()).pending, skipped: true };
   }
   if (!navigator.onLine) {

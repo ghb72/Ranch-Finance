@@ -3,6 +3,7 @@
  * User name, sync status, connectivity and local summary.
  */
 import { getSetting, setSetting, getPendingTransactions, getAllTransactions, getSyncStatusSnapshot, getTotalBalance } from '../db.js';
+import { logoutAndClearLocalData } from '../auth.js';
 import { showToast, formatCurrency } from '../utils.js';
 
 /**
@@ -96,6 +97,14 @@ export async function renderSettings() {
       </div>
     </div>
 
+    <div class="section-title">Sesión</div>
+    <div class="settings-group">
+      <button class="settings-action settings-action--danger" id="setting-logout" type="button">
+        <span class="settings-action__icon">🔒</span>
+        <span class="settings-action__label">Salir de la sesión</span>
+      </button>
+    </div>
+
     <!-- Modals -->
     <div class="modal-overlay" id="user-modal">
       <div class="modal">
@@ -109,6 +118,18 @@ export async function renderSettings() {
           maxlength="30"
         />
         <button class="modal__btn" id="btn-save-user">Guardar</button>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="logout-modal">
+      <div class="modal">
+        <h3 class="modal__title">Cerrar sesión</h3>
+        <p class="modal__text">Esto cerrará la sesión y borrará todos los datos locales del dispositivo.</p>
+        <p class="modal__error" style="margin-top: 0;">Se eliminarán transacciones, ajustes, caché y cualquier dato guardado offline.</p>
+        <div class="modal__actions">
+          <button class="modal__btn modal__btn--secondary" id="logout-cancel" type="button">Cancelar</button>
+          <button class="modal__btn modal__btn--danger" id="logout-confirm" type="button">Borrar y salir</button>
+        </div>
       </div>
     </div>
   `;
@@ -135,6 +156,33 @@ function setupSettingsListeners(container) {
       showToast('✅ Nombre guardado');
     } else {
       showToast('Ingresa un nombre', 'error');
+    }
+  });
+
+  container.querySelector('#setting-logout').addEventListener('click', () => {
+    document.getElementById('logout-modal').classList.add('active');
+  });
+
+  container.querySelector('#logout-cancel').addEventListener('click', () => {
+    document.getElementById('logout-modal').classList.remove('active');
+  });
+
+  container.querySelector('#logout-confirm').addEventListener('click', async () => {
+    const confirmButton = document.getElementById('logout-confirm');
+    const cancelButton = document.getElementById('logout-cancel');
+
+    confirmButton.disabled = true;
+    cancelButton.disabled = true;
+    confirmButton.textContent = 'Borrando...';
+
+    try {
+      await logoutAndClearLocalData();
+      window.location.reload();
+    } catch (error) {
+      confirmButton.disabled = false;
+      cancelButton.disabled = false;
+      confirmButton.textContent = 'Borrar y salir';
+      showToast(error.message || 'No se pudo borrar la sesión local', 'error');
     }
   });
 

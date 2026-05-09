@@ -6,8 +6,7 @@ Handles sync between the PWA and Supabase.
 Usage:
     uvicorn main:app --reload --port 8000
 """
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from contextlib import asynccontextmanager
@@ -15,9 +14,12 @@ import os
 import logging
 
 from dotenv import load_dotenv
+from auth import is_valid_AUTH_TOKEN, require_AUTH_TOKEN
 from config import get_data_provider, is_supabase_enabled
 from models import (
     DeleteResponse,
+    LoginRequest,
+    LoginResponse,
     SyncRequest,
     SyncResponse,
     SyncStateResponse,
@@ -137,8 +139,15 @@ async def health_check():
     }
 
 
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(request: LoginRequest):
+    """Validate the shared access token without creating a session."""
+
+    return LoginResponse(valid=is_valid_AUTH_TOKEN(request.token))
+
+
 @app.get("/api/sync/state", response_model=SyncStateResponse)
-async def get_sync_state():
+async def get_sync_state(_auth: str = Depends(require_AUTH_TOKEN)):
     """Return the current remote sync state.
 
     Supabase is the only supported source of truth for synchronization.
@@ -167,7 +176,7 @@ async def get_sync_state():
 
 
 @app.post("/api/sync", response_model=SyncResponse)
-async def sync_transactions(request: SyncRequest):
+async def sync_transactions(request: SyncRequest, _auth: str = Depends(require_AUTH_TOKEN)):
     """
     Receive pending transactions from the PWA and upsert them in Supabase.
     """
@@ -197,6 +206,7 @@ async def sync_transactions(request: SyncRequest):
 
 @app.get("/api/transactions", response_model=TransactionListResponse, response_model_by_alias=False)
 async def get_transactions(
+    _auth: str = Depends(require_AUTH_TOKEN),
     start_date: str = Query(None, description="YYYY-MM-DD"),
     end_date: str = Query(None, description="YYYY-MM-DD"),
     since_version: int = Query(None, description="Only return records with sync_version greater than this value"),
@@ -229,7 +239,7 @@ async def get_transactions(
 
 
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
-async def get_transaction(transaction_id: str):
+async def get_transaction(transaction_id: str, _auth: str = Depends(require_AUTH_TOKEN)):
     """Get a single transaction from Supabase."""
 
     ensure_supabase_ready()
@@ -251,7 +261,7 @@ async def get_transaction(transaction_id: str):
 
 
 @app.post("/api/transactions", response_model=TransactionSummary, response_model_by_alias=False)
-async def create_transaction(request: TransactionIn):
+async def create_transaction(request: TransactionIn, _auth: str = Depends(require_AUTH_TOKEN)):
     """Create one transaction in Supabase."""
 
     ensure_supabase_ready()
@@ -269,7 +279,11 @@ async def create_transaction(request: TransactionIn):
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
-async def update_transaction(transaction_id: str, request: TransactionIn):
+async def update_transaction(
+    transaction_id: str,
+    request: TransactionIn,
+    _auth: str = Depends(require_AUTH_TOKEN),
+):
     """Update one transaction in Supabase."""
 
     ensure_supabase_ready()
@@ -296,6 +310,7 @@ async def update_transaction(transaction_id: str, request: TransactionIn):
 @app.delete("/api/transactions/{transaction_id}", response_model=DeleteResponse)
 async def delete_transaction(
     transaction_id: str,
+    _auth: str = Depends(require_AUTH_TOKEN),
     deleted_by: str = Query(None, description="User performing the delete"),
 ):
     """Soft-delete one transaction in Supabase."""
@@ -320,6 +335,7 @@ async def delete_transaction(
 
 @app.get("/api/summary", response_model=SummaryResponse)
 async def get_summary(
+    _auth: str = Depends(require_AUTH_TOKEN),
     start_date: str = Query(None, description="YYYY-MM-DD"),
     end_date: str = Query(None, description="YYYY-MM-DD"),
 ):

@@ -64,6 +64,18 @@ class SyncRequest(BaseModel):
     )
 
 
+class LoginRequest(BaseModel):
+    """Login request used to validate the shared app token."""
+
+    token: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    """Simple validation response for the shared app token."""
+
+    valid: bool
+
+
 class SyncResponse(BaseModel):
     """Response after syncing."""
     synced: int

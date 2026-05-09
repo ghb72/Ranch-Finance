@@ -112,6 +112,7 @@ To use it in the Supabase SQL Editor:
 Relevant backend environment variables:
 
 - DATA_PROVIDER=supabase
+- AUTH_TOKEN for the shared application login token validated by the backend
 - SUPABASE_DB_URL for the backend PostgreSQL connection
 - SUPABASE_URL and SUPABASE_KEY for the backend HTTPS API path
 - PORT for the FastAPI server port

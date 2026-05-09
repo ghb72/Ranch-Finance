@@ -8,11 +8,21 @@ import { renderHome } from './views/home.js';
 import { renderForm } from './views/form.js';
 import { renderReports } from './views/reports.js';
 import { renderSettings } from './views/settings.js';
-import { initSyncListeners } from './sync.js';
+import {
+  addAuthRequiredListener,
+  clearStoredAuthToken,
+  getStoredAuthToken,
+  setStoredAuthToken,
+  validateAccessToken,
+} from './auth.js';
+import { initSyncListeners, syncPendingTransactions } from './sync.js';
 import { getSetting, setSetting } from './db.js';
+import { showToast } from './utils.js';
 import { inject } from '@vercel/analytics';
 
 const APP_SW_URL = new URL('/sw.js', window.location.origin).href;
+let authOverlay = null;
+let authFlowPromise = null;
 
 function getRegistrationScriptURL(registration) {
   return registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || '';
@@ -184,6 +194,165 @@ async function registerSW() {
   }
 }
 
+function closeModal(overlay) {
+  overlay.classList.remove('active');
+  setTimeout(() => {
+    if (overlay.parentNode) {
+      overlay.remove();
+    }
+    if (authOverlay === overlay) {
+      authOverlay = null;
+    }
+  }, 300);
+}
+
+function buildAuthModal({ message = '', allowSubmit = true } = {}) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = 'auth-modal';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3 class="modal__title">Acceso privado</h3>
+      <p class="modal__text">Ingresa el token para abrir la aplicación.</p>
+      <p class="modal__hint ${message ? '' : 'hidden'}" id="auth-message">${message}</p>
+      <input
+        type="password"
+        class="modal__input"
+        id="auth-token"
+        placeholder="AUTH_TOKEN"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        autofocus
+      />
+      <p class="modal__error hidden" id="auth-error"></p>
+      <button class="modal__btn" id="auth-submit" ${allowSubmit ? '' : 'disabled'}>Entrar</button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  authOverlay = overlay;
+  return overlay;
+}
+
+async function requestAccessToken({ message = '' } = {}) {
+  if (authFlowPromise) {
+    return authFlowPromise;
+  }
+
+  authFlowPromise = new Promise((resolve) => {
+    const canValidate = navigator.onLine;
+    const overlay = buildAuthModal({
+      message: canValidate ? message : 'Necesitas conexión para validar el token la primera vez.',
+      allowSubmit: canValidate,
+    });
+    const input = overlay.querySelector('#auth-token');
+    const submit = overlay.querySelector('#auth-submit');
+    const errorNode = overlay.querySelector('#auth-error');
+    const messageNode = overlay.querySelector('#auth-message');
+    let onlineListener = null;
+
+    const cleanup = () => {
+      if (onlineListener) {
+        window.removeEventListener('online', onlineListener);
+        onlineListener = null;
+      }
+    };
+
+    const setError = (text) => {
+      errorNode.textContent = text;
+      errorNode.classList.toggle('hidden', !text);
+      input.style.borderColor = text ? 'var(--color-accent-red)' : 'var(--color-border)';
+    };
+
+    const setMessage = (text) => {
+      messageNode.textContent = text;
+      messageNode.classList.toggle('hidden', !text);
+    };
+
+    const handleSubmit = async () => {
+      const token = input.value.trim();
+      if (!token) {
+        setError('Ingresa el token de acceso.');
+        return;
+      }
+
+      submit.disabled = true;
+      submit.textContent = 'Validando...';
+      setError('');
+
+      try {
+        const valid = await validateAccessToken(token);
+        if (!valid) {
+          setError('Token inválido.');
+          return;
+        }
+
+        setStoredAuthToken(token);
+        cleanup();
+        closeModal(overlay);
+        showToast('Acceso validado', 'success');
+        resolve(true);
+      } catch (error) {
+        setMessage('No se pudo validar el token contra el backend.');
+        setError(error.message || 'Error al validar el token.');
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Entrar';
+      }
+    };
+
+    submit.addEventListener('click', () => {
+      handleSubmit();
+    });
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !submit.disabled) {
+        handleSubmit();
+      }
+    });
+
+    if (!canValidate) {
+      onlineListener = () => {
+        setMessage(message);
+        setError('');
+        submit.disabled = false;
+        input.focus();
+      };
+      window.addEventListener('online', onlineListener);
+    }
+  }).finally(() => {
+    authFlowPromise = null;
+  });
+
+  return authFlowPromise;
+}
+
+async function ensureAuthenticatedOnStartup() {
+  const storedToken = getStoredAuthToken();
+  if (!storedToken) {
+    return requestAccessToken();
+  }
+
+  if (!navigator.onLine) {
+    return true;
+  }
+
+  try {
+    const valid = await validateAccessToken(storedToken);
+    if (valid) {
+      return true;
+    }
+
+    clearStoredAuthToken({ notify: false });
+    showToast('El token guardado ya no es válido.', 'error');
+    return requestAccessToken({ message: 'El token anterior dejó de ser válido. Ingresa uno nuevo.' });
+  } catch (error) {
+    showToast(error.message || 'No se pudo validar el acceso.', 'error');
+    return requestAccessToken({ message: 'No se pudo validar el token actual. Reintenta.' });
+  }
+}
+
 /**
  * Initialize the app
  */
@@ -196,6 +365,15 @@ async function init() {
   addRoute('form', renderForm);
   addRoute('reports', renderReports);
   addRoute('settings', renderSettings);
+
+  addAuthRequiredListener(async () => {
+    await requestAccessToken({ message: 'La sesión local dejó de ser válida. Ingresa el token nuevamente.' });
+    syncPendingTransactions().catch((error) => {
+      console.error('Resync after login failed:', error);
+    });
+  });
+
+  await ensureAuthenticatedOnStartup();
 
   // Initialize router
   initRouter();
