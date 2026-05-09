@@ -93,7 +93,7 @@ export async function renderSettings() {
           <span class="settings-item__icon">🐄</span>
           <span class="settings-item__label">RanchoFinanzas</span>
         </div>
-        <span class="settings-item__value">v1.0.0</span>
+        <span class="settings-item__value">v1.1.0</span>
       </div>
     </div>
 
