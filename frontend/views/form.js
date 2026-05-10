@@ -4,7 +4,7 @@
  * Optimized for quick entry with large touch targets.
  */
 import { addTransaction } from '../db.js';
-import { generateId, getToday, showToast } from '../utils.js';
+import { generateId, getToday, setupDateInputDisplay, showToast } from '../utils.js';
 import { navigate } from '../router.js';
 import { getSetting } from '../db.js';
 import { registerBackgroundSync, syncPendingTransactions } from '../sync.js';
@@ -50,13 +50,17 @@ export async function renderForm(params = {}) {
 
         <div class="form-group">
           <label class="form-group__label">Fecha</label>
-          <input
-            type="date"
-            class="form-group__input"
-            id="input-fecha"
-            value="${getToday()}"
-            max="${getToday()}"
-          />
+          <div class="date-input-stack">
+            <input
+              type="date"
+              class="form-group__input"
+              id="input-fecha"
+              value="${getToday()}"
+              max="${getToday()}"
+              lang="en-GB"
+            />
+            <div class="date-input-display" id="input-fecha-display"></div>
+          </div>
         </div>
 
         <div class="form-group">
@@ -118,6 +122,10 @@ export async function renderForm(params = {}) {
  */
 function setupFormListeners(container, tipo, currentUser) {
   const isIngreso = tipo === 'ingreso';
+  setupDateInputDisplay(
+    container.querySelector('#input-fecha'),
+    container.querySelector('#input-fecha-display'),
+  );
 
   // Back button
   container.querySelector('#form-back').addEventListener('click', () => {

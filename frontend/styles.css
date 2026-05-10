@@ -529,6 +529,23 @@ body::before {
   box-shadow: 0 0 0 3px var(--color-accent-blue-glow);
 }
 
+.date-input-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.date-input-display {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding-left: 4px;
+  letter-spacing: 0.4px;
+}
+
+.date-input-display--placeholder {
+  color: var(--color-text-muted);
+}
+
 .form-group__input--amount {
   font-size: var(--font-size-3xl);
   font-weight: 800;

@@ -14,7 +14,9 @@ import {
 import {
   formatCurrency,
   formatDate,
+  formatDateNumeric,
   getPaymentMethodLabel,
+  setupDateInputDisplay,
   getToday,
   CATEGORIES,
   showToast,
@@ -114,7 +116,10 @@ export async function renderReports() {
       </div>
 
       <div class="report-schedule-card__form">
-        <input type="date" class="report-date-input" id="next-report-date" />
+        <div class="date-input-stack">
+          <input type="date" class="report-date-input" id="next-report-date" lang="en-GB" />
+          <div class="date-input-display" id="next-report-date-display"></div>
+        </div>
         <div class="report-schedule-card__form-actions">
           <button class="report-action-btn report-action-btn--ghost report-action-btn--hidden" id="cancel-report-date-edit">Cancelar</button>
           <button class="report-action-btn" id="save-next-report-date">Guardar fecha</button>
@@ -188,6 +193,11 @@ export async function renderReports() {
     isScheduleEditorVisible = false;
     renderReportSchedule({ nextReportDate: persistedNextReportDate });
   });
+
+  setupDateInputDisplay(
+    container.querySelector('#next-report-date'),
+    container.querySelector('#next-report-date-display'),
+  );
 
   await loadRemoteReportData({ ensureDue: true });
   await updateAllReports();
@@ -275,15 +285,18 @@ function renderReportSchedule(schedule) {
   const dateInput = document.getElementById('next-report-date');
   const cardNode = document.querySelector('.report-schedule-card');
   const formNode = document.querySelector('.report-schedule-card__form');
+  const dateDisplayNode = document.getElementById('next-report-date-display');
   const editButton = document.getElementById('edit-report-date');
   const cancelButton = document.getElementById('cancel-report-date-edit');
   const generateButton = document.getElementById('generate-report-today');
-  if (!statusNode || !hintNode || !dateInput || !cardNode || !formNode || !editButton || !cancelButton || !generateButton) return;
+  if (!statusNode || !hintNode || !dateInput || !cardNode || !formNode || !dateDisplayNode || !editButton || !cancelButton || !generateButton) return;
 
   dateInput.min = getToday();
   persistedNextReportDate = schedule.nextReportDate || null;
 
   dateInput.value = schedule.nextReportDate || '';
+  dateDisplayNode.textContent = schedule.nextReportDate ? formatDateNumeric(schedule.nextReportDate) : 'DD/MM/YYYY';
+  dateDisplayNode.classList.toggle('date-input-display--placeholder', !schedule.nextReportDate);
 
   if (schedule.nextReportDate) {
     cardNode.classList.toggle('report-schedule-card--scheduled', !isScheduleEditorVisible);

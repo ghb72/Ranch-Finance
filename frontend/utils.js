@@ -26,6 +26,37 @@ export function formatDate(dateStr) {
   }).format(date);
 }
 
+export function formatDateNumeric(dateStr) {
+  if (!dateStr) return 'DD/MM/YYYY';
+
+  const normalized = String(dateStr).split('T')[0];
+  const [year, month, day] = normalized.split('-');
+
+  if (!year || !month || !day) {
+    return normalized;
+  }
+
+  return `${day}/${month}/${year}`;
+}
+
+export function setupDateInputDisplay(input, displayNode) {
+  if (!input) return;
+
+  input.setAttribute('lang', 'en-GB');
+
+  const renderDisplay = () => {
+    if (!displayNode) return;
+
+    const hasValue = Boolean(input.value);
+    displayNode.textContent = hasValue ? formatDateNumeric(input.value) : 'DD/MM/YYYY';
+    displayNode.classList.toggle('date-input-display--placeholder', !hasValue);
+  };
+
+  renderDisplay();
+  input.addEventListener('input', renderDisplay);
+  input.addEventListener('change', renderDisplay);
+}
+
 /**
  * Format a date as relative time (Hoy, Ayer, etc.)
  */
