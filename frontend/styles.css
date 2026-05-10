@@ -214,6 +214,13 @@ body::before {
   margin-bottom: var(--space-sm);
 }
 
+.balance-card__caption,
+.report-range-caption {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
 .balance-card__amount {
   font-size: var(--font-size-4xl);
   font-weight: 800;
@@ -359,6 +366,14 @@ body::before {
 .transaction-item:hover {
   background: var(--color-bg-card-hover);
   transform: translateX(4px);
+}
+
+.transaction-item--readonly {
+  cursor: default;
+}
+
+.transaction-item--readonly:hover {
+  transform: none;
 }
 
 .transaction-item__icon {

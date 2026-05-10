@@ -4,13 +4,17 @@
  */
 import Chart from 'chart.js/auto';
 import { getAllTransactions, getSetting, getTransactionsByDateRange, getSummary } from '../db.js';
-import { apiFetch, getApiUrl, isAuthenticated } from '../auth.js';
+import { apiFetch } from '../auth.js';
 import { getCurrentView } from '../router.js';
+import {
+  getCachedRemoteReportData,
+  hasRemoteReportAccess,
+  invalidateRemoteReportCache,
+} from '../reportCache.js';
 import {
   formatCurrency,
   formatDate,
   getPaymentMethodLabel,
-  getPeriodDates,
   getToday,
   CATEGORIES,
   showToast,
@@ -22,10 +26,6 @@ let reportViewCleanup = null;
 let isScheduleEditorVisible = false;
 let persistedNextReportDate = null;
 let latestStoredReports = [];
-
-function canUseRemoteReports() {
-  return Boolean(getApiUrl()) && isAuthenticated();
-}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -197,7 +197,7 @@ async function saveNextReportDate() {
   const input = document.getElementById('next-report-date');
   if (!input) return;
 
-  if (!canUseRemoteReports()) {
+  if (!hasRemoteReportAccess()) {
     throw new Error('Los reportes compartidos no están disponibles sin API configurada.');
   }
 
@@ -213,12 +213,13 @@ async function saveNextReportDate() {
   await parseApiResponse(response, 'No se pudo guardar la fecha del próximo reporte.');
   isScheduleEditorVisible = !input.value;
   showToast(input.value ? 'Próximo reporte guardado.' : 'Próximo reporte limpiado.', 'success');
-  await loadRemoteReportData({ ensureDue: false, silent: true });
+  invalidateRemoteReportCache();
+  await loadRemoteReportData({ ensureDue: false, silent: true, force: true });
   await updateAllReports();
 }
 
 async function generateTodayReport() {
-  if (!canUseRemoteReports()) {
+  if (!hasRemoteReportAccess()) {
     throw new Error('Los reportes compartidos no están disponibles sin API configurada.');
   }
 
@@ -230,11 +231,12 @@ async function generateTodayReport() {
   });
   const payload = await parseApiResponse(response, 'No se pudo generar el reporte de hoy.');
   showToast(`Reporte generado para ${formatDate(payload.report.reportDate)}`, 'success');
-  await loadRemoteReportData({ ensureDue: false, silent: true });
+  invalidateRemoteReportCache();
+  await loadRemoteReportData({ ensureDue: false, silent: true, force: true });
   await updateAllReports();
 }
 
-async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
+async function loadRemoteReportData({ ensureDue = true, silent = false, force = false } = {}) {
   const statusNode = document.getElementById('report-schedule-status');
   const hintNode = document.getElementById('report-schedule-hint');
   const historyNode = document.getElementById('saved-reports-list');
@@ -242,7 +244,7 @@ async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
 
   if (!statusNode || !hintNode || !historyNode || !dateInput) return;
 
-  if (!canUseRemoteReports()) {
+  if (!hasRemoteReportAccess()) {
     statusNode.textContent = 'Agenda compartida no disponible en este entorno';
     hintNode.textContent = 'Configura la API y autentícate para guardar cortes y ver el histórico compartido.';
     historyNode.innerHTML = '<div class="saved-report-card saved-report-card--empty">Sin conexión al backend de reportes.</div>';
@@ -250,11 +252,11 @@ async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
     return;
   }
 
-  const scheduleResponse = await apiFetch(`/api/report-schedule?ensure_due=${ensureDue ? 'true' : 'false'}`);
-  const reportsResponse = await apiFetch('/api/cash-flow-reports');
-  const schedule = await parseApiResponse(scheduleResponse, 'No se pudo consultar la agenda de reportes.');
-  const reportsPayload = await parseApiResponse(reportsResponse, 'No se pudo consultar el histórico de reportes.');
-  latestStoredReports = reportsPayload.reports || [];
+  const { schedule, reports } = await getCachedRemoteReportData({
+    ensureDue,
+    force,
+  });
+  latestStoredReports = reports;
 
   renderReportSchedule(schedule);
   renderSavedReports(latestStoredReports);
