@@ -15,11 +15,17 @@ import logging
 
 from dotenv import load_dotenv
 from auth import is_valid_AUTH_TOKEN, require_AUTH_TOKEN
-from config import get_data_provider, is_supabase_enabled
+from config import get_data_provider, is_debug_enabled, is_supabase_enabled
 from models import (
+    CashFlowReportListResponse,
+    CashFlowReportOut,
+    CashFlowReportSummary,
     DeleteResponse,
+    GenerateCashFlowReportRequest,
     LoginRequest,
     LoginResponse,
+    ReportScheduleResponse,
+    ReportScheduleUpdateRequest,
     SyncRequest,
     SyncResponse,
     SyncStateResponse,
@@ -33,10 +39,16 @@ from models import (
 load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG if is_debug_enabled() else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _server_error_detail(exc: Exception, fallback: str) -> str:
+    """Return detailed exceptions only when backend debug mode is enabled."""
+
+    return str(exc) if is_debug_enabled() else fallback
 
 
 # --- Custom CORS middleware (replaces Starlette CORSMiddleware) ---
@@ -47,6 +59,8 @@ ALLOWED_ORIGINS = [
 ] or ["*"]
 
 logger.info("CORS allow_origins = %s", ALLOWED_ORIGINS)
+
+ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 
 
 class CORSMiddleware(BaseHTTPMiddleware):
@@ -69,7 +83,7 @@ class CORSMiddleware(BaseHTTPMiddleware):
                 status_code=204,
                 headers={
                     "Access-Control-Allow-Origin": allow_origin,
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Methods": ALLOWED_METHODS,
                     "Access-Control-Allow-Headers": "*",
                     "Access-Control-Max-Age": "86400",
                 },
@@ -78,7 +92,7 @@ class CORSMiddleware(BaseHTTPMiddleware):
         # Process normal request and inject CORS headers
         response = await call_next(request)
         response.headers["Access-Control-Allow-Origin"] = allow_origin
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = ALLOWED_METHODS
         response.headers["Access-Control-Allow-Headers"] = "*"
         return response
 
@@ -172,7 +186,7 @@ async def get_sync_state(_auth: str = Depends(require_AUTH_TOKEN)):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error fetching sync state")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error fetching sync state.")) from exc
 
 
 @app.post("/api/sync", response_model=SyncResponse)
@@ -200,7 +214,7 @@ async def sync_transactions(request: SyncRequest, _auth: str = Depends(require_A
         logger.exception("Sync error")
         raise HTTPException(
             status_code=500,
-            detail=f"Synchronization error: {exc}",
+            detail=_server_error_detail(exc, "Synchronization error."),
         ) from exc
 
 
@@ -235,7 +249,7 @@ async def get_transactions(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error fetching transactions")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error fetching transactions.")) from exc
 
 
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
@@ -257,7 +271,7 @@ async def get_transaction(transaction_id: str, _auth: str = Depends(require_AUTH
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error fetching transaction")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error fetching transaction.")) from exc
 
 
 @app.post("/api/transactions", response_model=TransactionSummary, response_model_by_alias=False)
@@ -275,7 +289,7 @@ async def create_transaction(request: TransactionIn, _auth: str = Depends(requir
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error creating transaction")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error creating transaction.")) from exc
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionSummary, response_model_by_alias=False)
@@ -304,7 +318,7 @@ async def update_transaction(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error updating transaction")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error updating transaction.")) from exc
 
 
 @app.delete("/api/transactions/{transaction_id}", response_model=DeleteResponse)
@@ -330,7 +344,7 @@ async def delete_transaction(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error deleting transaction")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error deleting transaction.")) from exc
 
 
 @app.get("/api/summary", response_model=SummaryResponse)
@@ -356,7 +370,102 @@ async def get_summary(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Error computing summary")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error computing summary.")) from exc
+
+
+@app.get("/api/report-schedule", response_model=ReportScheduleResponse, response_model_by_alias=False)
+async def get_report_schedule(
+    _auth: str = Depends(require_AUTH_TOKEN),
+    ensure_due: bool = Query(False, description="Generate the scheduled report if the date is due"),
+):
+    """Return the shared next report date and optionally generate the due report."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import get_report_schedule as repo_get_report_schedule
+
+        schedule = repo_get_report_schedule(ensure_due=ensure_due)
+        return ReportScheduleResponse.model_validate(schedule)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error fetching report schedule")
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error fetching report schedule.")) from exc
+
+
+@app.put("/api/report-schedule", response_model=ReportScheduleResponse, response_model_by_alias=False)
+async def update_report_schedule(
+    request: ReportScheduleUpdateRequest,
+    _auth: str = Depends(require_AUTH_TOKEN),
+):
+    """Set or clear the shared next report date."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import set_next_report_date as repo_set_next_report_date
+
+        schedule, _version = repo_set_next_report_date(
+            next_report_date=request.nextReportDate,
+            updated_by=request.updatedBy,
+        )
+        return ReportScheduleResponse.model_validate(schedule)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error updating report schedule")
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error updating report schedule.")) from exc
+
+
+@app.get("/api/cash-flow-reports", response_model=CashFlowReportListResponse, response_model_by_alias=False)
+async def get_cash_flow_reports(_auth: str = Depends(require_AUTH_TOKEN)):
+    """List stored cash-flow report snapshots."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import list_cash_flow_reports as repo_list_cash_flow_reports
+
+        reports, version = repo_list_cash_flow_reports()
+        return CashFlowReportListResponse(
+            reports=[CashFlowReportOut.model_validate(report) for report in reports],
+            total=len(reports),
+            version=version,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error fetching cash-flow reports")
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error fetching cash-flow reports.")) from exc
+
+
+@app.post("/api/cash-flow-reports/generate", response_model=CashFlowReportSummary, response_model_by_alias=False)
+async def generate_cash_flow_report(
+    request: GenerateCashFlowReportRequest | None = None,
+    _auth: str = Depends(require_AUTH_TOKEN),
+):
+    """Generate and store a cash-flow report for the provided date or today."""
+
+    ensure_supabase_ready()
+
+    try:
+        from supabase_repo import generate_cash_flow_report as repo_generate_cash_flow_report
+
+        report, version = repo_generate_cash_flow_report(
+            report_date=request.reportDate if request else None,
+            generated_by=request.generatedBy if request else None,
+            generation_mode="manual",
+        )
+        return CashFlowReportSummary(
+            report=CashFlowReportOut.model_validate(report),
+            version=version,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Error generating cash-flow report")
+        raise HTTPException(status_code=500, detail=_server_error_detail(exc, "Internal error generating cash-flow report.")) from exc
 
 
 if __name__ == "__main__":

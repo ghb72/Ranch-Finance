@@ -20,6 +20,7 @@ DATA_PROVIDER = os.getenv("DATA_PROVIDER", "supabase").strip().lower() or "supab
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "").strip()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip()
+BACKEND_DEBUG = os.getenv("BACKEND_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def is_supabase_enabled() -> bool:
@@ -32,3 +33,9 @@ def get_data_provider() -> str:
     if DATA_PROVIDER in {"sheets", "supabase"}:
         return DATA_PROVIDER
     return "supabase"
+
+
+def is_debug_enabled() -> bool:
+    """Return whether verbose backend debug logging is enabled."""
+
+    return BACKEND_DEBUG

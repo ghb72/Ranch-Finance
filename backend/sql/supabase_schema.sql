@@ -17,6 +17,10 @@ begin
   if not exists (select 1 from pg_type where typname = 'audit_action') then
     create type audit_action as enum ('insert', 'update', 'soft_delete', 'restore', 'conflict');
   end if;
+
+  if not exists (select 1 from pg_type where typname = 'report_generation_mode') then
+    create type report_generation_mode as enum ('manual', 'scheduled');
+  end if;
 end
 $$;
 
@@ -39,6 +43,20 @@ insert into sync_state (scope, version)
 values ('global', 0)
 on conflict (scope) do nothing;
 
+create table if not exists report_scheduling (
+  id text primary key,
+  next_report_date date,
+  updated_by text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  sync_version bigint not null default 1,
+  metadata jsonb not null default '{}'::jsonb
+);
+
+insert into report_scheduling (id)
+values ('global')
+on conflict (id) do nothing;
+
 create table if not exists transactions (
   id uuid primary key default gen_random_uuid(),
   tipo transaction_type not null,
@@ -56,6 +74,25 @@ create table if not exists transactions (
   updated_at timestamptz not null default timezone('utc', now()),
   deleted_at timestamptz,
   sync_version bigint not null default 1,
+  metadata jsonb not null default '{}'::jsonb
+);
+
+create table if not exists cash_flow_reports (
+  id uuid primary key default gen_random_uuid(),
+  report_date date not null unique,
+  period_start date not null,
+  period_end date not null,
+  opening_balance numeric(14, 2) not null default 0,
+  total_ingresos numeric(14, 2) not null default 0,
+  total_gastos numeric(14, 2) not null default 0,
+  closing_balance numeric(14, 2) not null default 0,
+  transaction_count integer not null default 0,
+  generation_mode report_generation_mode not null default 'scheduled',
+  generated_by text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  sync_version bigint not null default 1,
+  snapshot_data jsonb not null default '{}'::jsonb,
   metadata jsonb not null default '{}'::jsonb
 );
 
@@ -77,6 +114,10 @@ create index if not exists idx_transactions_sync_version on transactions (sync_v
 create index if not exists idx_transactions_active_updated on transactions (updated_at desc) where deleted_at is null;
 create index if not exists idx_transactions_source_client on transactions (source_client_id, updated_at desc);
 create index if not exists idx_transaction_audit_transaction_id on transaction_audit_log (transaction_id, created_at desc);
+create index if not exists idx_report_scheduling_updated_at on report_scheduling (updated_at desc);
+create index if not exists idx_cash_flow_reports_report_date on cash_flow_reports (report_date desc);
+create index if not exists idx_cash_flow_reports_period_end on cash_flow_reports (period_end desc);
+create index if not exists idx_cash_flow_reports_sync_version on cash_flow_reports (sync_version desc);
 
 create or replace view active_transactions as
 select *
@@ -124,6 +165,23 @@ begin
       next_action := 'update';
     end if;
 
+    if to_jsonb(new) is distinct from to_jsonb(old) then
+      new.sync_version := old.sync_version + 1;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function register_sync_version_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.sync_version := 1;
+  elsif tg_op = 'UPDATE' then
     if to_jsonb(new) is distinct from to_jsonb(old) then
       new.sync_version := old.sync_version + 1;
     end if;
@@ -186,11 +244,39 @@ begin
 end;
 $$;
 
+create or replace function propagate_sync_state_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  perform touch_sync_state();
+  return coalesce(new, old);
+end;
+$$;
+
 drop trigger if exists trg_sync_clients_updated_at on sync_clients;
 create trigger trg_sync_clients_updated_at
 before update on sync_clients
 for each row
 execute function set_updated_at();
+
+drop trigger if exists trg_report_scheduling_updated_at on report_scheduling;
+create trigger trg_report_scheduling_updated_at
+before update on report_scheduling
+for each row
+execute function set_updated_at();
+
+drop trigger if exists trg_report_scheduling_register_change on report_scheduling;
+create trigger trg_report_scheduling_register_change
+before insert or update on report_scheduling
+for each row
+execute function register_sync_version_change();
+
+drop trigger if exists trg_report_scheduling_sync_state on report_scheduling;
+create trigger trg_report_scheduling_sync_state
+after insert or update on report_scheduling
+for each row
+execute function propagate_sync_state_change();
 
 drop trigger if exists trg_transactions_updated_at on transactions;
 create trigger trg_transactions_updated_at
@@ -209,6 +295,24 @@ create trigger trg_transactions_audit_change
 after insert or update on transactions
 for each row
 execute function audit_transaction_change();
+
+drop trigger if exists trg_cash_flow_reports_updated_at on cash_flow_reports;
+create trigger trg_cash_flow_reports_updated_at
+before update on cash_flow_reports
+for each row
+execute function set_updated_at();
+
+drop trigger if exists trg_cash_flow_reports_register_change on cash_flow_reports;
+create trigger trg_cash_flow_reports_register_change
+before insert or update on cash_flow_reports
+for each row
+execute function register_sync_version_change();
+
+drop trigger if exists trg_cash_flow_reports_sync_state on cash_flow_reports;
+create trigger trg_cash_flow_reports_sync_state
+after insert or update on cash_flow_reports
+for each row
+execute function propagate_sync_state_change();
 
 create or replace function get_sync_state(sync_scope text default 'global')
 returns table(version bigint, modified_at timestamptz)

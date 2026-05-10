@@ -3,11 +3,76 @@
  * Shows a general summary with charts, followed by per-category breakdowns.
  */
 import Chart from 'chart.js/auto';
-import { getTransactionsByDateRange, getSummary } from '../db.js';
-import { formatCurrency, getPeriodDates, CATEGORIES } from '../utils.js';
+import { getSetting, getTransactionsByDateRange, getSummary } from '../db.js';
+import { apiFetch, getApiUrl, isAuthenticated } from '../auth.js';
+import { getCurrentView } from '../router.js';
+import {
+  formatCurrency,
+  formatDate,
+  getPaymentMethodLabel,
+  getPeriodDates,
+  getToday,
+  CATEGORIES,
+  showToast,
+} from '../utils.js';
 
 const charts = [];
 let currentPeriod = 'month';
+let reportViewCleanup = null;
+let isScheduleEditorVisible = false;
+let persistedNextReportDate = null;
+
+function canUseRemoteReports() {
+  return Boolean(getApiUrl()) && isAuthenticated();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function parseApiResponse(response, fallbackMessage) {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.detail || fallbackMessage || `Request failed: ${response.status}`);
+  }
+  return payload;
+}
+
+function cleanupReportViewListeners() {
+  if (reportViewCleanup) {
+    reportViewCleanup();
+    reportViewCleanup = null;
+  }
+}
+
+function attachReportViewListeners() {
+  cleanupReportViewListeners();
+
+  const refreshIfActive = () => {
+    if (getCurrentView() !== 'reports') return;
+    loadRemoteReportData({ ensureDue: true, silent: true }).catch((error) => {
+      console.error('Remote report refresh failed:', error);
+    });
+  };
+
+  const handleVisibilityChange = () => {
+    if (!document.hidden) {
+      refreshIfActive();
+    }
+  };
+
+  window.addEventListener('focus', refreshIfActive);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  reportViewCleanup = () => {
+    window.removeEventListener('focus', refreshIfActive);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+}
 
 /**
  * Destroy all active Chart.js instances to prevent canvas reuse errors.
@@ -23,6 +88,7 @@ function destroyAllCharts() {
 export async function renderReports() {
   const container = document.getElementById('view-reports');
   container.classList.add('active');
+  attachReportViewListeners();
 
   container.innerHTML = `
     <div class="header">
@@ -34,6 +100,31 @@ export async function renderReports() {
       <button class="period-btn ${currentPeriod === 'week' ? 'active' : ''}" data-period="week">Semana</button>
       <button class="period-btn ${currentPeriod === 'month' ? 'active' : ''}" data-period="month">Mes</button>
       <button class="period-btn ${currentPeriod === 'year' ? 'active' : ''}" data-period="year">Año</button>
+    </div>
+
+    <div class="report-schedule-card">
+      <div class="report-schedule-card__header">
+        <div>
+          <div class="report-schedule-card__eyebrow">Próximo corte</div>
+          <div class="report-schedule-card__status" id="report-schedule-status">Cargando agenda...</div>
+        </div>
+        <div class="report-schedule-card__actions">
+          <button class="report-action-btn report-action-btn--ghost report-action-btn--hidden" id="edit-report-date">Cambiar fecha</button>
+          <button class="report-action-btn report-action-btn--ghost" id="generate-report-today">Generar reporte de hoy</button>
+        </div>
+      </div>
+
+      <div class="report-schedule-card__form">
+        <input type="date" class="report-date-input" id="next-report-date" />
+        <div class="report-schedule-card__form-actions">
+          <button class="report-action-btn report-action-btn--ghost report-action-btn--hidden" id="cancel-report-date-edit">Cancelar</button>
+          <button class="report-action-btn" id="save-next-report-date">Guardar fecha</button>
+        </div>
+      </div>
+
+      <div class="report-schedule-card__hint" id="report-schedule-hint">
+        Programa el siguiente corte compartido para todos los usuarios.
+      </div>
     </div>
 
     <!-- General report -->
@@ -54,6 +145,11 @@ export async function renderReports() {
       </div>
     </div>
 
+    <div class="section-title" style="margin-top: var(--space-xl);">Reportes Guardados</div>
+    <div class="saved-reports-list" id="saved-reports-list">
+      <div class="saved-report-card saved-report-card--empty">Cargando reportes históricos...</div>
+    </div>
+
     <!-- Per-category reports -->
     <div class="section-title" style="margin-top: var(--space-xl);">Reportes por Categoría</div>
     <div class="category-reports" id="category-reports"></div>
@@ -68,7 +164,221 @@ export async function renderReports() {
     });
   });
 
-  await updateAllReports();
+  container.querySelector('#save-next-report-date')?.addEventListener('click', () => {
+    saveNextReportDate().catch((error) => {
+      console.error('Save next report date failed:', error);
+      showToast(error.message || 'No se pudo guardar la fecha.', 'error');
+    });
+  });
+
+  container.querySelector('#generate-report-today')?.addEventListener('click', () => {
+    generateTodayReport().catch((error) => {
+      console.error('Manual report generation failed:', error);
+      showToast(error.message || 'No se pudo generar el reporte.', 'error');
+    });
+  });
+
+  container.querySelector('#edit-report-date')?.addEventListener('click', () => {
+    isScheduleEditorVisible = true;
+    renderReportSchedule({ nextReportDate: persistedNextReportDate });
+  });
+
+  container.querySelector('#cancel-report-date-edit')?.addEventListener('click', () => {
+    if (!persistedNextReportDate) return;
+    isScheduleEditorVisible = false;
+    renderReportSchedule({ nextReportDate: persistedNextReportDate });
+  });
+
+  await Promise.all([
+    updateAllReports(),
+    loadRemoteReportData({ ensureDue: true }),
+  ]);
+}
+
+async function saveNextReportDate() {
+  const input = document.getElementById('next-report-date');
+  if (!input) return;
+
+  if (!canUseRemoteReports()) {
+    throw new Error('Los reportes compartidos no están disponibles sin API configurada.');
+  }
+
+  const updatedBy = await getSetting('usuario');
+  const response = await apiFetch('/api/report-schedule', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nextReportDate: input.value || null,
+      updatedBy: updatedBy || 'Usuario',
+    }),
+  });
+  await parseApiResponse(response, 'No se pudo guardar la fecha del próximo reporte.');
+  isScheduleEditorVisible = !input.value;
+  showToast(input.value ? 'Próximo reporte guardado.' : 'Próximo reporte limpiado.', 'success');
+  await loadRemoteReportData({ ensureDue: false, silent: true });
+}
+
+async function generateTodayReport() {
+  if (!canUseRemoteReports()) {
+    throw new Error('Los reportes compartidos no están disponibles sin API configurada.');
+  }
+
+  const generatedBy = await getSetting('usuario');
+  const response = await apiFetch('/api/cash-flow-reports/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generatedBy: generatedBy || 'Usuario' }),
+  });
+  const payload = await parseApiResponse(response, 'No se pudo generar el reporte de hoy.');
+  showToast(`Reporte generado para ${formatDate(payload.report.reportDate)}`, 'success');
+  await loadRemoteReportData({ ensureDue: false, silent: true });
+}
+
+async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
+  const statusNode = document.getElementById('report-schedule-status');
+  const hintNode = document.getElementById('report-schedule-hint');
+  const historyNode = document.getElementById('saved-reports-list');
+  const dateInput = document.getElementById('next-report-date');
+
+  if (!statusNode || !hintNode || !historyNode || !dateInput) return;
+
+  if (!canUseRemoteReports()) {
+    statusNode.textContent = 'Agenda compartida no disponible en este entorno';
+    hintNode.textContent = 'Configura la API y autentícate para guardar cortes y ver el histórico compartido.';
+    historyNode.innerHTML = '<div class="saved-report-card saved-report-card--empty">Sin conexión al backend de reportes.</div>';
+    dateInput.value = '';
+    return;
+  }
+
+  const scheduleResponse = await apiFetch(`/api/report-schedule?ensure_due=${ensureDue ? 'true' : 'false'}`);
+  const reportsResponse = await apiFetch('/api/cash-flow-reports');
+  const schedule = await parseApiResponse(scheduleResponse, 'No se pudo consultar la agenda de reportes.');
+  const reportsPayload = await parseApiResponse(reportsResponse, 'No se pudo consultar el histórico de reportes.');
+
+  renderReportSchedule(schedule);
+  renderSavedReports(reportsPayload.reports || []);
+
+  if (!silent && schedule.generatedReportId) {
+    showToast(`Se generó el corte pendiente del ${formatDate(schedule.generatedReportDate)}`, 'success');
+  }
+  if (!silent && schedule.needsAttention) {
+    showToast('Designa la fecha de tu próximo reporte', 'info');
+  }
+}
+
+function renderReportSchedule(schedule) {
+  const statusNode = document.getElementById('report-schedule-status');
+  const hintNode = document.getElementById('report-schedule-hint');
+  const dateInput = document.getElementById('next-report-date');
+  const cardNode = document.querySelector('.report-schedule-card');
+  const formNode = document.querySelector('.report-schedule-card__form');
+  const editButton = document.getElementById('edit-report-date');
+  const cancelButton = document.getElementById('cancel-report-date-edit');
+  const generateButton = document.getElementById('generate-report-today');
+  if (!statusNode || !hintNode || !dateInput || !cardNode || !formNode || !editButton || !cancelButton || !generateButton) return;
+
+  dateInput.min = getToday();
+  persistedNextReportDate = schedule.nextReportDate || null;
+
+  dateInput.value = schedule.nextReportDate || '';
+
+  if (schedule.nextReportDate) {
+    cardNode.classList.toggle('report-schedule-card--scheduled', !isScheduleEditorVisible);
+    formNode.classList.toggle('report-schedule-card__form--hidden', !isScheduleEditorVisible);
+    hintNode.classList.toggle('report-schedule-card__hint--hidden', !isScheduleEditorVisible);
+    editButton.classList.toggle('report-action-btn--hidden', isScheduleEditorVisible);
+    cancelButton.classList.toggle('report-action-btn--hidden', !isScheduleEditorVisible);
+    generateButton.classList.toggle('report-action-btn--hidden', !isScheduleEditorVisible);
+
+    if (isScheduleEditorVisible) {
+      statusNode.textContent = `Próximo corte: ${formatDate(schedule.nextReportDate)}`;
+      hintNode.textContent = 'Puedes ajustar la fecha mientras el corte aún no se haya generado.';
+    } else {
+      statusNode.textContent = formatDate(schedule.nextReportDate);
+      hintNode.textContent = '';
+    }
+  } else {
+    isScheduleEditorVisible = true;
+    cardNode.classList.remove('report-schedule-card--scheduled');
+    formNode.classList.remove('report-schedule-card__form--hidden');
+    hintNode.classList.remove('report-schedule-card__hint--hidden');
+    editButton.classList.add('report-action-btn--hidden');
+    cancelButton.classList.add('report-action-btn--hidden');
+    generateButton.classList.remove('report-action-btn--hidden');
+    statusNode.textContent = 'No hay próxima fecha programada';
+    hintNode.textContent = 'Designa la fecha del siguiente corte para que quede disponible para todos los usuarios.';
+  }
+}
+
+function renderSavedReports(reports) {
+  const historyNode = document.getElementById('saved-reports-list');
+  if (!historyNode) return;
+
+  if (!reports.length) {
+    historyNode.innerHTML = '<div class="saved-report-card saved-report-card--empty">Aún no hay reportes guardados.</div>';
+    return;
+  }
+
+  historyNode.innerHTML = reports.map((report) => {
+    const snapshot = report.snapshotData || {};
+    const transactions = snapshot.transactions || [];
+    const preview = transactions.slice(0, 12);
+
+    return `
+      <details class="saved-report-card">
+        <summary class="saved-report-card__summary">
+          <div>
+            <div class="saved-report-card__title">Corte del ${escapeHtml(formatDate(report.reportDate))}</div>
+            <div class="saved-report-card__subtitle">
+              Periodo ${escapeHtml(formatDate(report.periodStart))} al ${escapeHtml(formatDate(report.periodEnd))}
+            </div>
+          </div>
+          <div class="saved-report-card__balance ${report.closingBalance >= 0 ? 'text-green' : 'text-red'}">
+            ${escapeHtml(formatCurrency(report.closingBalance))}
+          </div>
+        </summary>
+        <div class="saved-report-card__body">
+          <div class="saved-report-card__metrics">
+            <div class="saved-report-card__metric">
+              <span>${escapeHtml(formatCurrency(report.openingBalance))}</span>
+              <small>Saldo inicial</small>
+            </div>
+            <div class="saved-report-card__metric">
+              <span class="text-green">${escapeHtml(formatCurrency(report.totalIngresos))}</span>
+              <small>Ingresos</small>
+            </div>
+            <div class="saved-report-card__metric">
+              <span class="text-red">${escapeHtml(formatCurrency(report.totalGastos))}</span>
+              <small>Gastos</small>
+            </div>
+            <div class="saved-report-card__metric">
+              <span>${escapeHtml(String(report.transactionCount))}</span>
+              <small>Movimientos</small>
+            </div>
+          </div>
+          <div class="saved-report-card__meta">
+            Generado por ${escapeHtml(snapshot.generatedBy || report.generatedBy || 'Sistema')} · ${escapeHtml(report.generationMode)}
+          </div>
+          <div class="saved-report-card__transactions">
+            ${preview.length ? preview.map((transaction) => `
+              <div class="saved-report-transaction">
+                <div>
+                  <div class="saved-report-transaction__title">${escapeHtml(transaction.descripcion || 'Sin descripción')}</div>
+                  <div class="saved-report-transaction__meta">
+                    ${escapeHtml(formatDate(transaction.fecha))} · ${escapeHtml(transaction.categoria || 'general')} · ${escapeHtml(getPaymentMethodLabel(transaction.metodoPago || 'efectivo'))}
+                  </div>
+                </div>
+                <div class="saved-report-transaction__amount ${transaction.tipo === 'ingreso' ? 'text-green' : 'text-red'}">
+                  ${escapeHtml(formatCurrency(transaction.monto || 0))}
+                </div>
+              </div>
+            `).join('') : '<div class="saved-report-card__empty-state">No hubo movimientos en este periodo.</div>'}
+            ${transactions.length > preview.length ? `<div class="saved-report-card__more">${transactions.length - preview.length} movimiento(s) adicional(es) en el snapshot.</div>` : ''}
+          </div>
+        </div>
+      </details>
+    `;
+  }).join('');
 }
 
 /**
