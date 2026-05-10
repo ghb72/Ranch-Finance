@@ -3,7 +3,7 @@
  * Shows a general summary with charts, followed by per-category breakdowns.
  */
 import Chart from 'chart.js/auto';
-import { getSetting, getTransactionsByDateRange, getSummary } from '../db.js';
+import { getAllTransactions, getSetting, getTransactionsByDateRange, getSummary } from '../db.js';
 import { apiFetch, getApiUrl, isAuthenticated } from '../auth.js';
 import { getCurrentView } from '../router.js';
 import {
@@ -17,10 +17,11 @@ import {
 } from '../utils.js';
 
 const charts = [];
-let currentPeriod = 'month';
+let reportRangeMode = 'active';
 let reportViewCleanup = null;
 let isScheduleEditorVisible = false;
 let persistedNextReportDate = null;
+let latestStoredReports = [];
 
 function canUseRemoteReports() {
   return Boolean(getApiUrl()) && isAuthenticated();
@@ -96,10 +97,8 @@ export async function renderReports() {
     </div>
 
     <div class="reports-header">
-      <button class="period-btn ${currentPeriod === 'day' ? 'active' : ''}" data-period="day">Hoy</button>
-      <button class="period-btn ${currentPeriod === 'week' ? 'active' : ''}" data-period="week">Semana</button>
-      <button class="period-btn ${currentPeriod === 'month' ? 'active' : ''}" data-period="month">Mes</button>
-      <button class="period-btn ${currentPeriod === 'year' ? 'active' : ''}" data-period="year">Año</button>
+      <button class="period-btn ${reportRangeMode === 'active' ? 'active' : ''}" data-range-mode="active">Periodo Activo</button>
+      <button class="period-btn ${reportRangeMode === 'last' ? 'active' : ''}" data-range-mode="last">Último periodo</button>
     </div>
 
     <div class="report-schedule-card">
@@ -129,6 +128,7 @@ export async function renderReports() {
 
     <!-- General report -->
     <div class="section-title">Reporte General</div>
+    <div class="report-range-caption" id="report-range-caption">Cargando periodo...</div>
     <div class="summary-grid" id="summary-grid"></div>
 
     <div class="chart-card">
@@ -155,10 +155,10 @@ export async function renderReports() {
     <div class="category-reports" id="category-reports"></div>
   `;
 
-  container.querySelectorAll('.period-btn').forEach((btn) => {
+  container.querySelectorAll('[data-range-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      currentPeriod = btn.dataset.period;
-      container.querySelectorAll('.period-btn').forEach((b) => b.classList.remove('active'));
+      reportRangeMode = btn.dataset.rangeMode;
+      container.querySelectorAll('[data-range-mode]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       updateAllReports();
     });
@@ -189,10 +189,8 @@ export async function renderReports() {
     renderReportSchedule({ nextReportDate: persistedNextReportDate });
   });
 
-  await Promise.all([
-    updateAllReports(),
-    loadRemoteReportData({ ensureDue: true }),
-  ]);
+  await loadRemoteReportData({ ensureDue: true });
+  await updateAllReports();
 }
 
 async function saveNextReportDate() {
@@ -216,6 +214,7 @@ async function saveNextReportDate() {
   isScheduleEditorVisible = !input.value;
   showToast(input.value ? 'Próximo reporte guardado.' : 'Próximo reporte limpiado.', 'success');
   await loadRemoteReportData({ ensureDue: false, silent: true });
+  await updateAllReports();
 }
 
 async function generateTodayReport() {
@@ -232,6 +231,7 @@ async function generateTodayReport() {
   const payload = await parseApiResponse(response, 'No se pudo generar el reporte de hoy.');
   showToast(`Reporte generado para ${formatDate(payload.report.reportDate)}`, 'success');
   await loadRemoteReportData({ ensureDue: false, silent: true });
+  await updateAllReports();
 }
 
 async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
@@ -254,9 +254,10 @@ async function loadRemoteReportData({ ensureDue = true, silent = false } = {}) {
   const reportsResponse = await apiFetch('/api/cash-flow-reports');
   const schedule = await parseApiResponse(scheduleResponse, 'No se pudo consultar la agenda de reportes.');
   const reportsPayload = await parseApiResponse(reportsResponse, 'No se pudo consultar el histórico de reportes.');
+  latestStoredReports = reportsPayload.reports || [];
 
   renderReportSchedule(schedule);
-  renderSavedReports(reportsPayload.reports || []);
+  renderSavedReports(latestStoredReports);
 
   if (!silent && schedule.generatedReportId) {
     showToast(`Se generó el corte pendiente del ${formatDate(schedule.generatedReportDate)}`, 'success');
@@ -387,14 +388,85 @@ function renderSavedReports(reports) {
 async function updateAllReports() {
   destroyAllCharts();
 
-  const { start, end } = getPeriodDates(currentPeriod);
+  const captionNode = document.getElementById('report-range-caption');
+  const rangeData = await getCurrentReportRangeData();
+
+  if (captionNode) {
+    captionNode.textContent = rangeData.caption;
+  }
+
+  renderSummaryCards(rangeData.summary);
+  renderBarChart(rangeData.transactions);
+  renderDoughnutChart(rangeData.summary);
+  renderCategoryReports(rangeData.transactions);
+}
+
+async function getCurrentReportRangeData() {
+  if (reportRangeMode === 'last') {
+    const latestReport = latestStoredReports[0];
+    if (!latestReport) {
+      return {
+        caption: 'Aún no existe un último periodo guardado.',
+        summary: {
+          totalIngresos: 0,
+          totalGastos: 0,
+          balance: 0,
+          transacciones: 0,
+        },
+        transactions: [],
+      };
+    }
+
+    return {
+      caption: `Último periodo: ${formatDate(latestReport.periodStart)} al ${formatDate(latestReport.periodEnd)}`,
+      summary: {
+        totalIngresos: latestReport.totalIngresos,
+        totalGastos: latestReport.totalGastos,
+        balance: latestReport.closingBalance,
+        transacciones: latestReport.transactionCount,
+      },
+      transactions: latestReport.snapshotData?.transactions || [],
+    };
+  }
+
+  const { start, end, hasReports } = await getActivePeriodDates();
   const summary = await getSummary(start, end);
   const transactions = await getTransactionsByDateRange(start, end);
 
-  renderSummaryCards(summary);
-  renderBarChart(transactions);
-  renderDoughnutChart(summary);
-  renderCategoryReports(transactions);
+  return {
+    caption: hasReports
+      ? `Periodo activo: ${formatDate(start)} a ${formatDate(end)}`
+      : `Periodo activo: desde ${formatDate(start)} hasta ${formatDate(end)}`,
+    summary,
+    transactions,
+  };
+}
+
+async function getActivePeriodDates() {
+  const end = getToday();
+  const latestReport = latestStoredReports[0];
+
+  if (latestReport?.reportDate) {
+    const nextDay = new Date(`${latestReport.reportDate}T12:00:00`);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return {
+      start: nextDay.toISOString().split('T')[0],
+      end,
+      hasReports: true,
+    };
+  }
+
+  const allTransactions = await getAllTransactions();
+  const sortedDates = allTransactions
+    .map((transaction) => transaction.fecha)
+    .filter(Boolean)
+    .sort();
+
+  return {
+    start: sortedDates[0] || end,
+    end,
+    hasReports: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
