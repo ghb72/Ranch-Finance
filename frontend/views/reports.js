@@ -29,6 +29,18 @@ let isScheduleEditorVisible = false;
 let persistedNextReportDate = null;
 let latestStoredReports = [];
 
+const REPORT_CHART_COLORS = {
+  ingresoFill: 'rgba(64, 98, 78, 0.7)',
+  ingresoStroke: '#40624e',
+  gastoFill: 'rgba(143, 82, 88, 0.72)',
+  gastoStroke: '#8f5258',
+  neutralFill: 'rgba(117, 119, 125, 0.2)',
+  neutralStroke: 'rgba(117, 119, 125, 0.45)',
+  grid: 'rgba(197, 198, 205, 0.7)',
+  axis: '#75777d',
+  legend: '#45474c',
+};
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -528,16 +540,16 @@ function renderBarChart(transactions) {
         {
           label: 'Ingresos',
           data: data.ingresos.length ? data.ingresos : [0],
-          backgroundColor: 'rgba(0, 214, 143, 0.7)',
-          borderColor: '#00d68f',
+          backgroundColor: REPORT_CHART_COLORS.ingresoFill,
+          borderColor: REPORT_CHART_COLORS.ingresoStroke,
           borderWidth: 1,
           borderRadius: 6,
         },
         {
           label: 'Gastos',
           data: data.gastos.length ? data.gastos : [0],
-          backgroundColor: 'rgba(255, 107, 107, 0.7)',
-          borderColor: '#ff6b6b',
+          backgroundColor: REPORT_CHART_COLORS.gastoFill,
+          borderColor: REPORT_CHART_COLORS.gastoStroke,
           borderWidth: 1,
           borderRadius: 6,
         },
@@ -561,9 +573,11 @@ function renderDoughnutChart(summary) {
       datasets: [{
         data: hasData ? [summary.totalIngresos, summary.totalGastos] : [1],
         backgroundColor: hasData
-          ? ['rgba(0, 214, 143, 0.8)', 'rgba(255, 107, 107, 0.8)']
-          : ['rgba(90, 92, 114, 0.3)'],
-        borderColor: hasData ? ['#00d68f', '#ff6b6b'] : ['rgba(90,92,114,0.5)'],
+          ? [REPORT_CHART_COLORS.ingresoFill, REPORT_CHART_COLORS.gastoFill]
+          : [REPORT_CHART_COLORS.neutralFill],
+        borderColor: hasData
+          ? [REPORT_CHART_COLORS.ingresoStroke, REPORT_CHART_COLORS.gastoStroke]
+          : [REPORT_CHART_COLORS.neutralStroke],
         borderWidth: 2,
       }],
     },
@@ -574,7 +588,7 @@ function renderDoughnutChart(summary) {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: '#8b8da3', font: { family: 'Inter', size: 13 }, padding: 20 },
+          labels: { color: REPORT_CHART_COLORS.legend, font: { family: 'Work Sans', size: 13 }, padding: 20 },
         },
       },
     },
@@ -586,10 +600,10 @@ function renderDoughnutChart(summary) {
 // ---------------------------------------------------------------------------
 
 const CATEGORY_COLORS = {
-  agricultura: { bg: 'rgba(76, 175, 80, 0.7)', border: '#4caf50' },
-  engorda:     { bg: 'rgba(255, 152, 0, 0.7)', border: '#ff9800' },
-  sierra:      { bg: 'rgba(33, 150, 243, 0.7)', border: '#2196f3' },
-  general:     { bg: 'rgba(156, 39, 176, 0.7)', border: '#9c27b0' },
+  agricultura: { bg: 'rgba(81, 95, 116, 0.65)', border: '#515f74' },
+  engorda:     { bg: 'rgba(139, 111, 61, 0.65)', border: '#8b6f3d' },
+  sierra:      { bg: 'rgba(30, 41, 59, 0.65)', border: '#1e293b' },
+  general:     { bg: 'rgba(107, 114, 128, 0.65)', border: '#6b7280' },
 };
 
 function renderCategoryReports(transactions) {
@@ -664,8 +678,8 @@ function renderCategoryBarChart(canvasId, transactions, colors) {
         {
           label: 'Ingresos',
           data: data.ingresos.length ? data.ingresos : [0],
-          backgroundColor: 'rgba(0, 214, 143, 0.6)',
-          borderColor: '#00d68f',
+          backgroundColor: REPORT_CHART_COLORS.ingresoFill,
+          borderColor: REPORT_CHART_COLORS.ingresoStroke,
           borderWidth: 1,
           borderRadius: 4,
         },
@@ -715,21 +729,21 @@ function chartBarOptions(compact = false) {
     plugins: {
       legend: {
         display: !compact,
-        labels: { color: '#8b8da3', font: { family: 'Inter', size: 12 } },
+        labels: { color: REPORT_CHART_COLORS.legend, font: { family: 'Work Sans', size: 12 } },
       },
     },
     scales: {
       x: {
-        ticks: { color: '#5a5c72', font: { size: compact ? 9 : 10 } },
-        grid: { color: 'rgba(255,255,255,0.05)' },
+        ticks: { color: REPORT_CHART_COLORS.axis, font: { size: compact ? 9 : 10 } },
+        grid: { color: REPORT_CHART_COLORS.grid },
       },
       y: {
         ticks: {
-          color: '#5a5c72',
+          color: REPORT_CHART_COLORS.axis,
           font: { size: compact ? 9 : 10 },
           callback: (v) => '$' + v.toLocaleString(),
         },
-        grid: { color: 'rgba(255,255,255,0.05)' },
+        grid: { color: REPORT_CHART_COLORS.grid },
       },
     },
   };
