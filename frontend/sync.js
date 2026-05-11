@@ -271,19 +271,19 @@ function handleFocus() {
  */
 export function initSyncListeners() {
   window.addEventListener('online', async () => {
-    showToast('🟢 Conexión restaurada. Sincronizando...', 'info');
+    showToast('Conexión restaurada. Sincronizando...', 'info');
     const result = await syncPendingTransactions();
     const parts = [];
-    if (result.synced > 0) parts.push(`⬆ ${result.synced} enviada(s)`);
-    if (result.pulled > 0) parts.push(`⬇ ${result.pulled} recibida(s)`);
+    if (result.synced > 0) parts.push(`${result.synced} enviada(s)`);
+    if (result.pulled > 0) parts.push(`${result.pulled} recibida(s)`);
     if (parts.length > 0) {
-      showToast(`✅ ${parts.join(', ')}`, 'success');
+      showToast(parts.join(', '), 'success');
     }
   });
 
   window.addEventListener('offline', () => {
     dispatchSyncStatus('offline');
-    showToast('🔴 Sin conexión. Los datos se guardan localmente.', 'info');
+    showToast('Sin conexión. Los datos se guardan localmente.', 'info');
   });
 
   document.addEventListener('visibilitychange', handleVisibilityChange);

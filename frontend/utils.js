@@ -135,7 +135,27 @@ export function showToast(message, type = 'success') {
 
   const toast = document.createElement('div');
   toast.className = `toast toast--${type}`;
-  toast.textContent = message;
+
+  const iconName = {
+    success: 'check_circle',
+    error: 'error',
+    info: 'info',
+  }[type] || 'info';
+
+  const content = document.createElement('div');
+  content.className = 'toast__content';
+
+  const icon = document.createElement('span');
+  icon.className = 'material-symbols-outlined toast__icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = iconName;
+
+  const text = document.createElement('span');
+  text.className = 'toast__message';
+  text.textContent = message;
+
+  content.append(icon, text);
+  toast.appendChild(content);
   document.body.appendChild(toast);
 
   // Trigger animation
@@ -165,18 +185,26 @@ export function getPaymentMethodLabel(method) {
 
 /** Category definitions used across the app. */
 export const CATEGORIES = {
-  agricultura: { emoji: '🌾', label: 'Agricultura' },
-  engorda:     { emoji: '🐄', label: 'Engorda' },
-  sierra:      { emoji: '⛰️', label: 'Ganado en Sierra' },
-  general:     { emoji: '🏠', label: 'Gastos Generales / Casa' },
+  agricultura: { icon: 'agriculture', label: 'Agricultura' },
+  engorda:     { icon: 'pets', label: 'Engorda' },
+  sierra:      { icon: 'terrain', label: 'Ganado en Sierra' },
+  general:     { icon: 'home', label: 'Gastos Generales / Casa' },
 };
 
+export function renderSymbolIcon(name, className = '') {
+  const classes = ['material-symbols-outlined'];
+  if (className) classes.push(className);
+  return `<span class="${classes.join(' ')}" aria-hidden="true">${name}</span>`;
+}
+
 /**
- * Get the label (with emoji) for a category key.
+ * Get the label (with icon) for a category key.
  */
 export function getCategoryLabel(key) {
   const cat = CATEGORIES[key];
-  return cat ? `${cat.emoji} ${cat.label}` : key;
+  return cat
+    ? `<span class="category-label">${renderSymbolIcon(cat.icon, 'category-label__icon')}<span>${cat.label}</span></span>`
+    : key;
 }
 
 /**

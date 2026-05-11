@@ -17,6 +17,7 @@ import {
   showToast,
   getCategoryLabel,
   getToday,
+  renderSymbolIcon,
 } from '../utils.js';
 import { navigate } from '../router.js';
 
@@ -177,11 +178,11 @@ function renderHomeRangeContent(rangeData) {
 
     <div class="action-buttons">
       <button type="button" class="action-btn action-btn--ingreso" id="btn-income">
-        <span class="action-btn__icon">💰</span>
+        ${renderSymbolIcon('add_circle', 'action-btn__icon')}
         <span>Ingreso</span>
       </button>
       <button type="button" class="action-btn action-btn--gasto" id="btn-expense">
-        <span class="action-btn__icon">💸</span>
+        ${renderSymbolIcon('remove_circle', 'action-btn__icon')}
         <span>Gasto</span>
       </button>
     </div>
@@ -194,7 +195,7 @@ function renderHomeRangeContent(rangeData) {
       </div>
     ` : `
       <div class="empty-state">
-        <div class="empty-state__icon">📋</div>
+        <div class="empty-state__icon">${renderSymbolIcon('receipt_long')}</div>
         <div class="empty-state__text">No hay transacciones para este rango.<br>Prueba con otro selector o registra nuevos movimientos.</div>
       </div>
     `}
@@ -237,8 +238,8 @@ export async function renderHome() {
 
   container.innerHTML = `
     <div class="header">
-      <div class="header__logo">🐄</div>
-      <h1 class="header__title">RanchoFinanzas</h1>
+      <div class="header__logo"><img class="header__logo-img" src="/hb_group_logo_v2.png" alt="HB Group" /></div>
+      <h1 class="header__title">Sector Finanzas</h1>
     </div>
     <div class="reports-header" style="margin-bottom: var(--space-lg);">
       ${Object.entries(HOME_RANGE_OPTIONS).map(([value, option]) => `
@@ -269,13 +270,15 @@ export async function renderHome() {
  * Render a single transaction list item
  */
 function renderTransactionItem(t) {
-  const icon = t.tipo === 'ingreso' ? '📥' : '📤';
+  const icon = t.tipo === 'ingreso'
+    ? renderSymbolIcon('arrow_downward_alt', 'transaction-item__material-icon')
+    : renderSymbolIcon('arrow_upward_alt', 'transaction-item__material-icon');
   const desc = t.descripcion || (t.tipo === 'ingreso' ? 'Ingreso' : 'Gasto');
   const sign = t.tipo === 'ingreso' ? '+' : '-';
   const categoryTag = t.categoria ? getCategoryLabel(t.categoria) : '';
   const isReadonly = !t.localId;
   const syncIcon = t.synced === 0
-    ? '<span class="sync-badge sync-badge--pending">⏳</span>'
+    ? `<span class="sync-badge sync-badge--pending">${renderSymbolIcon('hourglass_top', 'sync-badge__icon')}<span>Pendiente</span></span>`
     : '';
 
   return `
@@ -339,7 +342,7 @@ function confirmDelete(itemEl) {
   overlay.className = 'modal-overlay active';
   overlay.innerHTML = `
     <div class="modal">
-      <h3 class="modal__title">🗑️ ¿Eliminar transacción?</h3>
+      <h3 class="modal__title">${renderSymbolIcon('delete', 'modal__title-icon')} ¿Eliminar transacción?</h3>
       <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: var(--space-lg); font-size: var(--font-size-base);">
         Esta acción no se puede deshacer.
       </p>
@@ -370,7 +373,7 @@ function confirmDelete(itemEl) {
         overlay.remove();
         renderHome(); // Refresh view with updated balance
       }, 300);
-      showToast('🗑️ Transacción marcada para eliminar', 'success');
+      showToast('Transacción marcada para eliminar', 'success');
     } catch (err) {
       showToast('Error al eliminar', 'error');
       closeModal();

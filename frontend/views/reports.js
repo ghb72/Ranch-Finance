@@ -20,6 +20,7 @@ import {
   getToday,
   CATEGORIES,
   showToast,
+  renderSymbolIcon,
 } from '../utils.js';
 
 const charts = [];
@@ -107,7 +108,7 @@ export async function renderReports() {
 
   container.innerHTML = `
     <div class="header">
-      <h1 class="header__title">📊 Reportes</h1>
+      <h1 class="header__title">${renderSymbolIcon('analytics', 'header__title-icon')} Reportes</h1>
     </div>
 
     <div class="reports-header">
@@ -634,7 +635,7 @@ function renderCategoryReports(transactions) {
     card.className = 'category-report-card';
     card.innerHTML = `
       <div class="category-report-card__header">
-        <span class="category-report-card__emoji">${cat.emoji}</span>
+        ${renderSymbolIcon(cat.icon, 'category-report-card__emoji')}
         <span class="category-report-card__name">${cat.label}</span>
         <span class="category-report-card__count">${txs.length} mov.</span>
       </div>

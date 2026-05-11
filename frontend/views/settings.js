@@ -4,7 +4,7 @@
  */
 import { getSetting, setSetting, getPendingTransactions, getAllTransactions, getSyncStatusSnapshot, getTotalBalance } from '../db.js';
 import { logoutAndClearLocalData } from '../auth.js';
-import { showToast, formatCurrency } from '../utils.js';
+import { showToast, formatCurrency, renderSymbolIcon } from '../utils.js';
 
 /**
  * Render the settings view
@@ -21,14 +21,14 @@ export async function renderSettings() {
 
   container.innerHTML = `
     <div class="header">
-      <h1 class="header__title">⚙️ Configuración</h1>
+      <h1 class="header__title">${renderSymbolIcon('person', 'header__title-icon')} Configuración</h1>
     </div>
 
     <div class="section-title">Usuario</div>
     <div class="settings-group">
       <div class="settings-item" id="setting-user">
         <div class="settings-item__left">
-          <span class="settings-item__icon">👤</span>
+          ${renderSymbolIcon('person', 'settings-item__icon')}
           <span class="settings-item__label">Nombre</span>
         </div>
         <span class="settings-item__value" id="user-display">${currentUser}</span>
@@ -39,7 +39,7 @@ export async function renderSettings() {
     <div class="settings-group">
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">${pending.length > 0 ? '⏳' : '✅'}</span>
+          ${renderSymbolIcon(pending.length > 0 ? 'hourglass_top' : 'cloud_done', 'settings-item__icon')}
           <span class="settings-item__label">Estado</span>
         </div>
         <span class="settings-item__value" id="sync-status">
@@ -52,14 +52,14 @@ export async function renderSettings() {
     <div class="settings-group">
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">${navigator.onLine ? '🟢' : '🔴'}</span>
+          ${renderSymbolIcon(navigator.onLine ? 'wifi' : 'wifi_off', 'settings-item__icon')}
           <span class="settings-item__label">Internet</span>
         </div>
         <span class="settings-item__value">${navigator.onLine ? 'Conectado' : 'Sin conexión'}</span>
       </div>
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">🧭</span>
+          ${renderSymbolIcon('cloud_sync', 'settings-item__icon')}
           <span class="settings-item__label">Versión remota</span>
         </div>
         <span class="settings-item__value">${syncSnapshot.lastKnownVersion || 'Sin sync'}</span>
@@ -70,14 +70,14 @@ export async function renderSettings() {
     <div class="settings-group">
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">📊</span>
+          ${renderSymbolIcon('analytics', 'settings-item__icon')}
           <span class="settings-item__label">Transacciones</span>
         </div>
         <span class="settings-item__value">${allTransactions.length}</span>
       </div>
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">💰</span>
+          ${renderSymbolIcon('account_balance_wallet', 'settings-item__icon')}
           <span class="settings-item__label">Balance local</span>
         </div>
         <span class="settings-item__value ${balance.balance >= 0 ? 'text-green' : 'text-red'}">
@@ -90,7 +90,7 @@ export async function renderSettings() {
     <div class="settings-group">
       <div class="settings-item">
         <div class="settings-item__left">
-          <span class="settings-item__icon">🐄</span>
+          ${renderSymbolIcon('account_balance', 'settings-item__icon')}
           <span class="settings-item__label">RanchoFinanzas</span>
         </div>
         <span class="settings-item__value">v1.1.0</span>
@@ -100,7 +100,7 @@ export async function renderSettings() {
     <div class="section-title">Sesión</div>
     <div class="settings-group">
       <button class="settings-action settings-action--danger" id="setting-logout" type="button">
-        <span class="settings-action__icon">🔒</span>
+        ${renderSymbolIcon('logout', 'settings-action__icon')}
         <span class="settings-action__label">Salir de la sesión</span>
       </button>
     </div>
@@ -108,7 +108,7 @@ export async function renderSettings() {
     <!-- Modals -->
     <div class="modal-overlay" id="user-modal">
       <div class="modal">
-        <h3 class="modal__title">👤 ¿Cómo te llamas?</h3>
+        <h3 class="modal__title">${renderSymbolIcon('person', 'modal__title-icon')} ¿Cómo te llamas?</h3>
         <input
           type="text"
           class="modal__input"
@@ -153,7 +153,7 @@ function setupSettingsListeners(container) {
       await setSetting('usuario', name);
       document.getElementById('user-display').textContent = name;
       document.getElementById('user-modal').classList.remove('active');
-      showToast('✅ Nombre guardado');
+      showToast('Nombre guardado');
     } else {
       showToast('Ingresa un nombre', 'error');
     }

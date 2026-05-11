@@ -4,7 +4,7 @@
  * Optimized for quick entry with large touch targets.
  */
 import { addTransaction } from '../db.js';
-import { generateId, getToday, setupDateInputDisplay, showToast } from '../utils.js';
+import { generateId, getToday, setupDateInputDisplay, showToast, renderSymbolIcon } from '../utils.js';
 import { navigate } from '../router.js';
 import { getSetting } from '../db.js';
 import { registerBackgroundSync, syncPendingTransactions } from '../sync.js';
@@ -29,7 +29,7 @@ export async function renderForm(params = {}) {
       <div class="form-header">
         <button class="form-header__back" id="form-back">←</button>
         <h2 class="form-header__title form-header__title--${tipo}">
-          ${isIngreso ? '💰 Nuevo Ingreso' : '💸 Nuevo Gasto'}
+          ${renderSymbolIcon(isIngreso ? 'add_circle' : 'remove_circle', 'form-header__icon')}${isIngreso ? 'Nuevo Ingreso' : 'Nuevo Gasto'}
         </h2>
       </div>
 
@@ -78,20 +78,20 @@ export async function renderForm(params = {}) {
           <label class="form-group__label">Categoría *</label>
           <select class="form-group__select" id="input-categoria" required>
             <option value="" disabled selected>Selecciona una categoría...</option>
-            <option value="agricultura">🌾 Agricultura</option>
-            <option value="engorda">🐄 Engorda</option>
-            <option value="sierra">⛰️ Ganado en Sierra</option>
-            <option value="general">🏠 Gastos Generales / Casa</option>
+            <option value="agricultura">Agricultura</option>
+            <option value="engorda">Engorda</option>
+            <option value="sierra">Ganado en Sierra</option>
+            <option value="general">Gastos Generales / Casa</option>
           </select>
         </div>
 
         <div class="form-group">
           <label class="form-group__label">Método de Pago</label>
           <select class="form-group__select" id="input-metodo">
-            <option value="efectivo" selected>💵 Efectivo</option>
-            <option value="transferencia">🏦 Transferencia</option>
-            <option value="tarjeta">💳 Tarjeta</option>
-            <option value="cheque">📝 Cheque</option>
+            <option value="efectivo" selected>Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="cheque">Cheque</option>
           </select>
         </div>
 
@@ -99,7 +99,7 @@ export async function renderForm(params = {}) {
           <label class="form-group__label">Comprobante (Opcional)</label>
           <input type="file" id="input-photo" accept="image/*" capture="environment" class="hidden" />
           <button type="button" class="photo-btn" id="btn-photo">
-            <span class="photo-btn__icon">📷</span>
+            ${renderSymbolIcon('photo_camera', 'photo-btn__icon')}
             <span>Tomar foto del ticket</span>
           </button>
           <img id="photo-preview" class="photo-preview hidden" alt="Preview" />
@@ -108,7 +108,7 @@ export async function renderForm(params = {}) {
         <input type="hidden" id="input-tipo" value="${tipo}" />
 
         <button type="submit" class="submit-btn submit-btn--${tipo}" id="btn-submit">
-          ✅ Guardar ${isIngreso ? 'Ingreso' : 'Gasto'}
+          ${renderSymbolIcon('save', 'submit-btn__icon')}<span>Guardar ${isIngreso ? 'Ingreso' : 'Gasto'}</span>
         </button>
       </form>
     </div>
@@ -155,7 +155,7 @@ function setupFormListeners(container, tipo, currentUser) {
       photoPreview.src = photoData;
       photoPreview.classList.remove('hidden');
       photoBtn.innerHTML = `
-        <span class="photo-btn__icon">✅</span>
+        ${renderSymbolIcon('check_circle', 'photo-btn__icon')}
         <span>Foto capturada - Toca para cambiar</span>
       `;
     };
@@ -185,7 +185,7 @@ function setupFormListeners(container, tipo, currentUser) {
     // Prevent double submit
     const submitBtn = document.getElementById('btn-submit');
     submitBtn.disabled = true;
-    submitBtn.textContent = '⏳ Guardando...';
+    submitBtn.textContent = 'Guardando...';
 
     const transaction = {
       id: generateId(),
@@ -202,7 +202,7 @@ function setupFormListeners(container, tipo, currentUser) {
     try {
       await addTransaction(transaction);
       showToast(
-        isIngreso ? '✅ Ingreso guardado' : '✅ Gasto guardado',
+        isIngreso ? 'Ingreso guardado' : 'Gasto guardado',
         'success',
       );
 
@@ -220,7 +220,7 @@ function setupFormListeners(container, tipo, currentUser) {
       console.error('Error saving transaction:', err);
       showToast('Error al guardar. Inténtalo de nuevo.', 'error');
       submitBtn.disabled = false;
-      submitBtn.textContent = `✅ Guardar ${isIngreso ? 'Ingreso' : 'Gasto'}`;
+      submitBtn.innerHTML = `${renderSymbolIcon('save', 'submit-btn__icon')}<span>Guardar ${isIngreso ? 'Ingreso' : 'Gasto'}</span>`;
     }
   });
 
