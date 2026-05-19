@@ -3,7 +3,7 @@
  * Initializes the PWA, router, and renders the app shell
  */
 import './styles.css';
-import { addRoute, initRouter, navigate } from './router.js';
+import { addRoute, getCurrentView, initRouter, navigate } from './router.js';
 import { renderHome } from './views/home.js';
 import { renderForm } from './views/form.js';
 import { renderReports } from './views/reports.js';
@@ -353,6 +353,20 @@ async function ensureAuthenticatedOnStartup() {
   }
 }
 
+function refreshHomeAfterSync(detail = {}) {
+  if (getCurrentView() !== 'home') {
+    return;
+  }
+
+  if ((detail.synced || 0) === 0 && (detail.pulled || 0) === 0) {
+    return;
+  }
+
+  renderHome().catch((error) => {
+    console.error('Home refresh after sync failed:', error);
+  });
+}
+
 /**
  * Initialize the app
  */
@@ -373,10 +387,20 @@ async function init() {
     });
   });
 
-  await ensureAuthenticatedOnStartup();
+  window.addEventListener('sync-complete', (event) => {
+    refreshHomeAfterSync(event.detail);
+  });
 
-  // Initialize router
-  initRouter();
+  const hasStoredToken = Boolean(getStoredAuthToken());
+  if (hasStoredToken) {
+    initRouter();
+    ensureAuthenticatedOnStartup().catch((error) => {
+      console.error('Background auth validation failed:', error);
+    });
+  } else {
+    await ensureAuthenticatedOnStartup();
+    initRouter();
+  }
 
   // Initialize sync listeners
   initSyncListeners();
