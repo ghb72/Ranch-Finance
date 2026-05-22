@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['fierro.png', 'fierce-192.png', 'fierce-512.png'],
+      includeAssets: ['icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'RanchoFinanzas',
         short_name: 'Finanzas',
@@ -19,18 +19,18 @@ export default defineConfig({
         lang: 'es',
         icons: [
           {
-            src: 'fierro.png',
+            src: 'icon.png',
             sizes: 'any',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: 'fierce-192.png',
+            src: 'icon-192.png',
             sizes: '192x192',
             type: 'image/png',
           },
           {
-            src: 'fierce-512.png',
+            src: 'icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable',

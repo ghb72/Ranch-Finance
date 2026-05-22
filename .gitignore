@@ -9,6 +9,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+frontend/stitch-reference
+frontend/node_modules
+frontend/dist
+
 node_modules
 dist
 dist-ssr

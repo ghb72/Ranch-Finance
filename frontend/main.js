@@ -3,7 +3,7 @@
  * Initializes the PWA, router, and renders the app shell
  */
 import './styles.css';
-import { addRoute, initRouter, navigate } from './router.js';
+import { addRoute, getCurrentView, initRouter, navigate } from './router.js';
 import { renderHome } from './views/home.js';
 import { renderForm } from './views/form.js';
 import { renderReports } from './views/reports.js';
@@ -17,7 +17,7 @@ import {
 } from './auth.js';
 import { initSyncListeners, syncPendingTransactions } from './sync.js';
 import { getSetting, setSetting } from './db.js';
-import { showToast } from './utils.js';
+import { showToast, renderSymbolIcon } from './utils.js';
 import { inject } from '@vercel/analytics';
 
 const APP_SW_URL = new URL('/sw.js', window.location.origin).href;
@@ -76,15 +76,15 @@ function createAppShell() {
     <!-- Bottom Navigation -->
     <nav class="bottom-nav">
       <button class="bottom-nav__item active" data-route="home" id="nav-home">
-        <span class="bottom-nav__icon">🏠</span>
+        ${renderSymbolIcon('dashboard', 'bottom-nav__icon')}
         <span>Inicio</span>
       </button>
       <button class="bottom-nav__item" data-route="reports" id="nav-reports">
-        <span class="bottom-nav__icon">📊</span>
+        ${renderSymbolIcon('analytics', 'bottom-nav__icon')}
         <span>Reportes</span>
       </button>
       <button class="bottom-nav__item" data-route="settings" id="nav-settings">
-        <span class="bottom-nav__icon">⚙️</span>
+        ${renderSymbolIcon('person', 'bottom-nav__icon')}
         <span>Ajustes</span>
       </button>
     </nav>
@@ -117,7 +117,7 @@ function showWelcomeModal() {
   overlay.id = 'welcome-modal';
   overlay.innerHTML = `
     <div class="modal">
-      <h3 class="modal__title">🐄 ¡Bienvenido a RanchoFinanzas!</h3>
+      <h3 class="modal__title">${renderSymbolIcon('account_balance', 'modal__title-icon')} ¡Bienvenido a Finanzas H&B!</h3>
       <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: var(--space-lg); font-size: var(--font-size-base);">
         Lleva el control de tus ingresos y gastos de manera fácil.
       </p>
@@ -353,6 +353,20 @@ async function ensureAuthenticatedOnStartup() {
   }
 }
 
+function refreshHomeAfterSync(detail = {}) {
+  if (getCurrentView() !== 'home') {
+    return;
+  }
+
+  if ((detail.synced || 0) === 0 && (detail.pulled || 0) === 0) {
+    return;
+  }
+
+  renderHome().catch((error) => {
+    console.error('Home refresh after sync failed:', error);
+  });
+}
+
 /**
  * Initialize the app
  */
@@ -373,10 +387,20 @@ async function init() {
     });
   });
 
-  await ensureAuthenticatedOnStartup();
+  window.addEventListener('sync-complete', (event) => {
+    refreshHomeAfterSync(event.detail);
+  });
 
-  // Initialize router
-  initRouter();
+  const hasStoredToken = Boolean(getStoredAuthToken());
+  if (hasStoredToken) {
+    initRouter();
+    ensureAuthenticatedOnStartup().catch((error) => {
+      console.error('Background auth validation failed:', error);
+    });
+  } else {
+    await ensureAuthenticatedOnStartup();
+    initRouter();
+  }
 
   // Initialize sync listeners
   initSyncListeners();
