@@ -98,10 +98,6 @@ export async function pushPendingTransactions() {
         syncVersion: Number(payload.version || transaction.syncVersion || 0),
       })));
 
-      if (payload.version) {
-        await setLastKnownSyncVersion(String(payload.version));
-      }
-
       return { synced: pending.length, pending: 0, version: payload.version || null };
     }
     console.error('Push failed:', response.status);
