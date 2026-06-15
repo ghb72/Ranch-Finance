@@ -194,6 +194,30 @@ async function registerSW() {
   }
 }
 
+/**
+ * Register periodic background sync so installed PWAs refresh ~3x/day even
+ * when the app is closed. The browser controls the exact timing (we only set a
+ * minimum interval). No-ops silently where unsupported (iOS, Firefox).
+ */
+async function registerPeriodicSync() {
+  if (!('serviceWorker' in navigator)) return;
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    if (!('periodicSync' in registration)) return;
+
+    const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+    if (status.state !== 'granted') return;
+
+    await registration.periodicSync.register('daily-sync', {
+      minInterval: 8 * 60 * 60 * 1000, // ~3 times per day
+    });
+    console.log('Periodic background sync registered');
+  } catch (err) {
+    console.error('Periodic background sync registration failed:', err);
+  }
+}
+
 function closeModal(overlay) {
   overlay.classList.remove('active');
   setTimeout(() => {
@@ -407,6 +431,9 @@ async function init() {
 
   // Register service worker
   await registerSW();
+
+  // Register periodic background sync (installed PWAs, supported browsers)
+  await registerPeriodicSync();
 
   // Check first run
   await checkFirstRun();

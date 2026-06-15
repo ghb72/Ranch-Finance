@@ -1,4 +1,4 @@
-import db from './db.js';
+import db, { setSyncCredentials, clearSyncCredentials } from './db.js';
 
 const AUTH_STORAGE_KEY = 'auth_token';
 const AUTH_REQUIRED_EVENT = 'auth:required';
@@ -67,11 +67,17 @@ export function getStoredAuthToken() {
 }
 
 export function setStoredAuthToken(token) {
-  localStorage.setItem(AUTH_STORAGE_KEY, token.trim());
+  const trimmed = token.trim();
+  localStorage.setItem(AUTH_STORAGE_KEY, trimmed);
+  // Mirror into IndexedDB so the service worker can run background syncs.
+  setSyncCredentials({ token: trimmed }).catch((error) => {
+    console.error('Failed to mirror auth token for background sync:', error);
+  });
 }
 
 export function clearStoredAuthToken({ notify = true } = {}) {
   localStorage.removeItem(AUTH_STORAGE_KEY);
+  clearSyncCredentials().catch(() => {});
   if (notify) {
     dispatchAuthRequired({ reason: 'missing-token' });
   }

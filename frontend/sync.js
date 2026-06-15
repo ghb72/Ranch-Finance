@@ -4,16 +4,17 @@
  * Pull: fetch remote transactions and merge into IndexedDB.
  */
 import {
-  getLastKnownSyncVersion,
   getPendingTransactions,
   getSyncStatusSnapshot,
-  markTransactionsAsSynced,
-  upsertRemoteTransaction,
-  getLastSyncTimestamp,
-  setLastKnownSyncVersion,
-  setLastSyncTimestamp,
+  setSyncCredentials,
 } from './db.js';
-import { apiFetch, getApiUrl, isAuthenticated } from './auth.js';
+import {
+  clearStoredAuthToken,
+  getApiUrl,
+  getStoredAuthToken,
+  isAuthenticated,
+} from './auth.js';
+import { pushPending, pullRemote } from './syncCore.js';
 import { showToast } from './utils.js';
 
 const POLL_INTERVAL = 60_000;
@@ -32,25 +33,34 @@ function dispatchSyncComplete(detail = {}) {
 
 function getClientId() {
   let clientId = localStorage.getItem('client_id');
-  if (clientId) return clientId;
-
-  clientId = globalThis.crypto?.randomUUID?.() || `client-${Date.now()}`;
-  localStorage.setItem('client_id', clientId);
+  if (!clientId) {
+    clientId = globalThis.crypto?.randomUUID?.() || `client-${Date.now()}`;
+    localStorage.setItem('client_id', clientId);
+  }
+  // Mirror into IndexedDB so the service worker can stamp background syncs.
+  setSyncCredentials({ clientId }).catch(() => {});
   return clientId;
 }
 
-
-async function fetchSyncState() {
-  const response = await apiFetch('/api/sync/state');
-  if (!response.ok) {
-    throw new Error(`Sync state failed: ${response.status}`);
-  }
-  return await response.json();
+/**
+ * Build the credentials context consumed by the sync core.
+ */
+function getSyncContext() {
+  return { token: getStoredAuthToken(), clientId: getClientId() };
 }
 
 /**
- * Attempt to sync pending transactions to the backend
+ * Handle an unauthorized response surfaced by the sync core, mirroring the
+ * old apiFetch behaviour (drop the token and prompt for re-auth).
  */
+function handleSyncError(err) {
+  if (err?.unauthorized) {
+    clearStoredAuthToken({ notify: true });
+  } else {
+    console.error('Sync error:', err);
+  }
+}
+
 /**
  * Push pending local transactions to the server.
  */
@@ -61,56 +71,16 @@ export async function pushPendingTransactions() {
   }
 
   try {
-    const pending = await getPendingTransactions();
-    if (pending.length === 0) {
-      return { synced: 0, pending: 0 };
-    }
-
-    const response = await apiFetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        transactions: pending.map((t) => ({
-          id: t.id,
-          tipo: t.tipo,
-          monto: t.monto,
-          fecha: t.fecha,
-          descripcion: t.descripcion,
-          categoria: t.categoria || 'general',
-          metodoPago: t.metodoPago,
-          usuario: t.usuario,
-          createdAt: t.createdAt,
-          updatedAt: t.updatedAt,
-          deletedAt: t.deleted === 1 ? (t.deletedAt || t.updatedAt) : null,
-          syncVersion: t.syncVersion || 0,
-          sourceClientId: t.sourceClientId || getClientId(),
-        })),
-      }),
-    });
-
-    if (response.ok) {
-      const payload = await response.json();
-      await markTransactionsAsSynced(pending.map((transaction) => ({
-        id: transaction.id,
-        deleted: transaction.deleted === 1,
-        deletedAt: transaction.deletedAt || null,
-        updatedAt: transaction.updatedAt,
-        syncVersion: Number(payload.version || transaction.syncVersion || 0),
-      })));
-
-      return { synced: pending.length, pending: 0, version: payload.version || null };
-    }
-    console.error('Push failed:', response.status);
-    return { synced: 0, pending: pending.length };
+    return await pushPending(getSyncContext());
   } catch (err) {
-    console.error('Push error:', err);
+    handleSyncError(err);
     return { synced: 0, pending: (await getPendingTransactions()).length };
   }
 }
 
 /**
  * Pull remote transactions from the server and merge into IndexedDB.
- * Only fetches records newer than the last pull timestamp when available.
+ * Only fetches records newer than the last known sync version.
  */
 export async function pullRemoteTransactions() {
   const API_URL = getApiUrl();
@@ -119,52 +89,9 @@ export async function pullRemoteTransactions() {
   }
 
   try {
-    const lastKnownVersion = await getLastKnownSyncVersion();
-    const syncState = await fetchSyncState();
-    if (lastKnownVersion && String(syncState.version) === String(lastKnownVersion)) {
-      return { pulled: 0, skipped: true, version: syncState.version };
-    }
-
-    const params = new URLSearchParams({ include_deleted: 'true' });
-    if (lastKnownVersion) {
-      params.set('since_version', String(lastKnownVersion));
-    }
-
-    const response = await apiFetch(`/api/transactions?${params.toString()}`);
-    if (!response.ok) {
-      console.error('Pull failed:', response.status);
-      return { pulled: 0 };
-    }
-
-    const data = await response.json();
-    const remoteTransactions = data.transactions || [];
-
-    let inserted = 0;
-    for (const t of remoteTransactions) {
-      if (!t.id) continue;
-      const wasNew = await upsertRemoteTransaction({
-        id: t.id,
-        tipo: t.tipo,
-        monto: Number(t.monto),
-        fecha: t.fecha,
-        descripcion: t.descripcion || '',
-        categoria: t.categoria || 'general',
-        metodoPago: t.metodoPago || 'efectivo',
-        usuario: t.usuario || '',
-        createdAt: t.createdAt || new Date().toISOString(),
-        updatedAt: t.updatedAt || t.createdAt || new Date().toISOString(),
-        deletedAt: t.deletedAt || null,
-        syncVersion: Number(t.syncVersion || 0),
-        sourceClientId: t.sourceClientId || null,
-      });
-      if (wasNew) inserted++;
-    }
-
-    await setLastSyncTimestamp(new Date().toISOString());
-    await setLastKnownSyncVersion(String(data.version || syncState.version || lastKnownVersion || '0'));
-    return { pulled: inserted, skipped: false, version: String(data.version || syncState.version || '') };
+    return await pullRemote(getSyncContext());
   } catch (err) {
-    console.error('Pull error:', err);
+    handleSyncError(err);
     return { pulled: 0 };
   }
 }

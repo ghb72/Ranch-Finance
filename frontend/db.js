@@ -260,6 +260,27 @@ export async function setLastKnownSyncVersion(version) {
 }
 
 
+/**
+ * Mirror the auth token and client id into IndexedDB so the service worker
+ * (which cannot read localStorage) can authenticate background syncs.
+ */
+export async function setSyncCredentials({ token, clientId } = {}) {
+  const current = (await getSetting('syncCredentials')) || {};
+  const next = { ...current };
+  if (token !== undefined) next.token = token;
+  if (clientId !== undefined) next.clientId = clientId;
+  return await setSetting('syncCredentials', next);
+}
+
+export async function getSyncCredentials() {
+  return (await getSetting('syncCredentials')) || {};
+}
+
+export async function clearSyncCredentials() {
+  return await db.settings.delete('syncCredentials');
+}
+
+
 export async function getSyncStatusSnapshot() {
   const pending = await getPendingTransactions();
   const lastKnownVersion = await getLastKnownSyncVersion();
