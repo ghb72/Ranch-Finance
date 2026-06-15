@@ -5,7 +5,6 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: 'RanchoFinanzas',
         short_name: 'Finanzas',
@@ -19,9 +18,9 @@ export default defineConfig({
         lang: 'es',
         icons: [
           {
-            src: 'icon.png',
+            src: 'icon.svg',
             sizes: 'any',
-            type: 'image/png',
+            type: 'image/svg+xml',
             purpose: 'any',
           },
           {
