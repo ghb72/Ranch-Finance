@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RanchoFinanzas API",
     description="Backend for syncing the RanchoFinanzas PWA with Supabase",
-    version="1.1.0",
+    version="1.1.1",
     lifespan=lifespan,
 )
 
@@ -147,7 +147,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "RanchoFinanzas API",
-        "version": "1.1.0",
+        "version": "1.1.1",
         "data_provider": get_data_provider(),
         "supabase_configured": is_supabase_enabled(),
     }
