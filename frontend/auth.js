@@ -24,12 +24,33 @@ function getApiUrls() {
   return ENV_API_URLS;
 }
 
+// Safety net: if a database stays blocked (e.g. another tab or an in-flight
+// background sync still holds it open), resolve anyway after this delay so the
+// logout never hangs. The deletion stays pending in the browser and finishes on
+// its own once those connections close; the following reload + re-auth recovers
+// cleanly regardless.
+const DELETE_DB_TIMEOUT_MS = 4000;
+
 function deleteIndexedDatabase(name) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
     const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error || new Error(`No se pudo borrar IndexedDB: ${name}`));
-    request.onblocked = () => reject(new Error(`La base local sigue bloqueada: ${name}`));
+    request.onsuccess = finish;
+    // A failed delete must not trap the user in a half-logged-out state.
+    request.onerror = finish;
+    // `onblocked` means another connection still holds the DB open. We must NOT
+    // reject here: the deletion stays pending and completes via `onsuccess`
+    // once that connection closes. We just wait, with a timeout fallback.
+    request.onblocked = () => {
+      console.warn(`Esperando a que se libere la base local: ${name}`);
+      window.setTimeout(finish, DELETE_DB_TIMEOUT_MS);
+    };
   });
 }
 
@@ -75,16 +96,23 @@ export function setStoredAuthToken(token) {
   });
 }
 
-export function clearStoredAuthToken({ notify = true } = {}) {
+export function clearStoredAuthToken({ notify = true, clearCredentials = true } = {}) {
   localStorage.removeItem(AUTH_STORAGE_KEY);
-  clearSyncCredentials().catch(() => {});
+  // During a full logout we skip this write: it reopens IndexedDB (which we are
+  // about to delete) and would leave the deletion blocked.
+  if (clearCredentials) {
+    clearSyncCredentials().catch(() => {});
+  }
   if (notify) {
     dispatchAuthRequired({ reason: 'missing-token' });
   }
 }
 
 export async function logoutAndClearLocalData() {
-  clearStoredAuthToken({ notify: false });
+  // Tell the sync engine to stop touching IndexedDB before we close and delete
+  // it, so a poll/focus/online sync does not immediately reopen the connection.
+  window.dispatchEvent(new CustomEvent('app:logout'));
+  clearStoredAuthToken({ notify: false, clearCredentials: false });
   sessionStorage.clear();
   localStorage.clear();
   await Promise.all([

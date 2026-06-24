@@ -20,6 +20,19 @@ import { showToast } from './utils.js';
 const POLL_INTERVAL = 60_000;
 let syncTimer = null;
 let isSyncing = false;
+// Once true, the sync engine stops touching IndexedDB entirely. Set during
+// logout so the local database can be deleted without being reopened by a
+// poll/focus/online sync (which would otherwise leave deleteDatabase blocked).
+let syncHalted = false;
+
+/**
+ * Permanently stop all sync activity for this page session.
+ * Used during logout, right before the local database is wiped.
+ */
+export function haltSync() {
+  syncHalted = true;
+  stopPolling();
+}
 
 
 function dispatchSyncStatus(status, detail = {}) {
@@ -101,6 +114,9 @@ export async function pullRemoteTransactions() {
  * Kept as the main public API (backward-compatible name).
  */
 export async function syncPendingTransactions() {
+  if (syncHalted) {
+    return { synced: 0, pulled: 0, pending: 0, skipped: true };
+  }
   if (isSyncing) {
     return { synced: 0, pulled: 0, pending: (await getSyncStatusSnapshot()).pending, skipped: true };
   }
@@ -161,7 +177,7 @@ function stopPolling() {
 
 
 function startPolling() {
-  if (syncTimer || document.hidden) return;
+  if (syncHalted || syncTimer || document.hidden) return;
   syncTimer = window.setInterval(() => {
     syncPendingTransactions().catch((error) => {
       console.error('Polling sync failed:', error);
@@ -211,6 +227,9 @@ export function initSyncListeners() {
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('focus', handleFocus);
+  // Stop all sync the moment a logout begins, so the local database can be
+  // deleted without our own connection holding it open.
+  window.addEventListener('app:logout', haltSync);
 
   if (!document.hidden) {
     startPolling();
@@ -223,6 +242,7 @@ export function initSyncListeners() {
     stopPolling();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     window.removeEventListener('focus', handleFocus);
+    window.removeEventListener('app:logout', haltSync);
   };
 }
 
