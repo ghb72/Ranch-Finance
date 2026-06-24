@@ -7,6 +7,7 @@ import {
   getPendingTransactions,
   getSyncStatusSnapshot,
   setSyncCredentials,
+  markSessionValidated,
 } from './db.js';
 import {
   clearStoredAuthToken,
@@ -84,7 +85,11 @@ export async function pushPendingTransactions() {
   }
 
   try {
-    return await pushPending(getSyncContext());
+    const result = await pushPending(getSyncContext());
+    // The server responded without a 401, so our token is still valid: refresh
+    // the local "session is valid" marker that keeps the app usable offline.
+    markSessionValidated().catch(() => {});
+    return result;
   } catch (err) {
     handleSyncError(err);
     return { synced: 0, pending: (await getPendingTransactions()).length };
@@ -102,7 +107,9 @@ export async function pullRemoteTransactions() {
   }
 
   try {
-    return await pullRemote(getSyncContext());
+    const result = await pullRemote(getSyncContext());
+    markSessionValidated().catch(() => {});
+    return result;
   } catch (err) {
     handleSyncError(err);
     return { pulled: 0 };

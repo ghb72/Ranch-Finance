@@ -16,7 +16,7 @@ import {
   validateAccessToken,
 } from './auth.js';
 import { initSyncListeners, syncPendingTransactions } from './sync.js';
-import { getSetting, setSetting } from './db.js';
+import { getSetting, setSetting, markSessionValidated } from './db.js';
 import { showToast, renderSymbolIcon } from './utils.js';
 import { inject } from '@vercel/analytics';
 
@@ -267,7 +267,7 @@ async function requestAccessToken({ message = '' } = {}) {
   authFlowPromise = new Promise((resolve) => {
     const canValidate = navigator.onLine;
     const overlay = buildAuthModal({
-      message: canValidate ? message : 'Necesitas conexión para validar el token la primera vez.',
+      message: canValidate ? message : 'Necesitas conexión para iniciar sesión la primera vez.',
       allowSubmit: canValidate,
     });
     const input = overlay.querySelector('#auth-token');
@@ -313,6 +313,7 @@ async function requestAccessToken({ message = '' } = {}) {
         }
 
         setStoredAuthToken(token);
+        markSessionValidated().catch(() => {});
         cleanup();
         closeModal(overlay);
         showToast('Acceso validado', 'success');
@@ -355,25 +356,32 @@ async function requestAccessToken({ message = '' } = {}) {
 async function ensureAuthenticatedOnStartup() {
   const storedToken = getStoredAuthToken();
   if (!storedToken) {
+    // No prior login on this device. Validation can only happen online.
     return requestAccessToken();
   }
 
-  if (!navigator.onLine) {
-    return true;
-  }
-
+  // We already logged in online at some point, so the user is in. We re-verify
+  // in the background, but the golden rule is: only a *definitive rejection*
+  // from the server (the token is no longer valid) may force re-login. A
+  // network/unreachable error (offline, backend asleep, no real internet even
+  // when navigator.onLine is true) must NEVER show the login banner — otherwise
+  // the app would demand the token every time it opens without connectivity.
   try {
     const valid = await validateAccessToken(storedToken);
     if (valid) {
+      markSessionValidated().catch(() => {});
       return true;
     }
 
+    // Server explicitly rejected the token.
     clearStoredAuthToken({ notify: false });
     showToast('El token guardado ya no es válido.', 'error');
     return requestAccessToken({ message: 'El token anterior dejó de ser válido. Ingresa uno nuevo.' });
   } catch (error) {
-    showToast(error.message || 'No se pudo validar el acceso.', 'error');
-    return requestAccessToken({ message: 'No se pudo validar el token actual. Reintenta.' });
+    // Could not reach the backend (offline / down). Keep the existing session;
+    // it will be re-checked on the next successful sync.
+    console.warn('No se pudo contactar al backend para validar el token; se mantiene la sesión.', error);
+    return true;
   }
 }
 
@@ -397,6 +405,12 @@ function refreshHomeAfterSync(detail = {}) {
 async function init() {
   // Create app shell
   createAppShell();
+
+  // Register the service worker first thing, before anything that can block
+  // (notably the auth modal). This guarantees the app shell is precached on the
+  // very first online visit regardless of the login flow — which is what makes
+  // later offline launches work instead of showing the browser's error page.
+  const swReady = registerSW();
 
   // Register routes
   addRoute('home', renderHome);
@@ -429,8 +443,9 @@ async function init() {
   // Initialize sync listeners
   initSyncListeners();
 
-  // Register service worker
-  await registerSW();
+  // Wait for the service worker registration kicked off at the top before
+  // setting up periodic sync, which depends on it.
+  await swReady;
 
   // Register periodic background sync (installed PWAs, supported browsers)
   await registerPeriodicSync();

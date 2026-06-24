@@ -280,6 +280,19 @@ export async function clearSyncCredentials() {
   return await db.settings.delete('syncCredentials');
 }
 
+/**
+ * Record that the backend accepted our token (login, startup validation, or any
+ * successful authenticated sync). This is the local "the session is good"
+ * marker that lets the app run fully offline after a prior online login.
+ */
+export async function markSessionValidated(timestamp = now()) {
+  return await setSetting('sessionValidatedAt', timestamp);
+}
+
+export async function getSessionValidatedAt() {
+  return await getSetting('sessionValidatedAt');
+}
+
 
 export async function getSyncStatusSnapshot() {
   const pending = await getPendingTransactions();
