@@ -93,7 +93,7 @@ export async function renderSettings() {
           ${renderSymbolIcon('account_balance', 'settings-item__icon')}
           <span class="settings-item__label">RanchoFinanzas</span>
         </div>
-        <span class="settings-item__value">v1.1.1</span>
+        <span class="settings-item__value">v1.1.2</span>
       </div>
     </div>
 
