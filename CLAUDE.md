@@ -8,10 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cd frontend
-npm install          # install deps
-npm run dev          # dev server at http://localhost:5173
-npm run build        # production build (outputs to frontend/dist/)
-npm run preview      # preview the production build
+pnpm install          # install deps and not use npm
+pnpm run dev          # dev server at http://localhost:5173
+pnpm run build        # production build (outputs to frontend/dist/)
+pnpm run preview      # preview the production build
 ```
 
 Set `VITE_API_URL` in `frontend/.env` to the backend URL (e.g. `http://localhost:8000`). Multiple comma-separated URLs are supported for local fallback resolution.
